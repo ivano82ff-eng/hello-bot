@@ -149,9 +149,24 @@ body {
   padding: 10px 6px;
   background: #f6efe2;
   color: #2d1f14;
-  border-radius: 6px;
+  border: 5px solid #6b4a2a;
+  border-radius: 3px;
   transform: rotate(2.5deg);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 2px rgba(107, 74, 42, 0.35);
+}
+
+/* Гвоздик, чтобы плакат читался как плакат на стене, а не как карточка интерфейса. */
+.wall-poster::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: radial-gradient(circle at 35% 35%, #e8e3d8, #8d8578);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .wall-poster__cat {

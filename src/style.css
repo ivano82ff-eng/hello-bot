@@ -1122,15 +1122,28 @@ kbd {
   }
 
   .card {
-    padding: 16px 20px;
+    padding: 14px 20px;
   }
 
   .card__title {
     font-size: clamp(20px, 6vh, 28px);
   }
 
+  .card__text {
+    margin-bottom: 10px;
+  }
+
   .card__list {
-    margin-bottom: 12px;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+
+  .card__stats {
+    margin-bottom: 10px;
+  }
+
+  .card__footnote {
+    display: none;
   }
 
   .card__button {

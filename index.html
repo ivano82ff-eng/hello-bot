@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Кот-вредитель — сбрось всё со стола</title>
+    <meta
+      name="description"
+      content="Аркада про кота, который сбрасывает вещи с рабочего стола, пока хозяин не смотрит. Успей навести хаос за 60 секунд."
+    />
+    <meta name="theme-color" content="#2a1d3d" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😼</text></svg>" />
+  </head>
+  <body>
+    <main class="room" id="room">
+      <div class="room__wall" aria-hidden="true">
+        <div class="wall-window">
+          <div class="wall-window__sky"></div>
+          <div class="wall-window__frame"></div>
+        </div>
+        <div class="wall-poster">
+          <span class="wall-poster__cat">🐈‍⬛</span>
+          <span class="wall-poster__text">ЛУЧШИЙ<br />КОТ<br />ГОДА</span>
+        </div>
+        <div class="room__lamp-glow"></div>
+      </div>
+
+      <header class="hud">
+        <div class="hud__stat" title="Очки за сброшенное">
+          <span class="hud__label">Хаос</span>
+          <span class="hud__value" id="score">0</span>
+        </div>
+        <div class="hud__stat hud__stat--combo" id="combo-box" hidden>
+          <span class="hud__label">Серия</span>
+          <span class="hud__value" id="combo">x1</span>
+        </div>
+        <div class="hud__stat hud__stat--timer">
+          <span class="hud__label">Осталось</span>
+          <span class="hud__value" id="timer">60</span>
+        </div>
+        <div class="hud__stat" title="Терпение хозяина">
+          <span class="hud__label">Терпение</span>
+          <span class="hud__value hud__value--lives" id="lives"></span>
+        </div>
+        <button class="hud__sound" id="sound-toggle" type="button" aria-pressed="true">
+          <span id="sound-icon">🔊</span>
+          <span class="visually-hidden">Звук</span>
+        </button>
+      </header>
+
+      <section class="stage" id="stage">
+        <div class="owner" id="owner">
+          <div class="owner__bubble" id="owner-bubble" aria-live="polite"></div>
+          <div class="owner__face" id="owner-face">🧑‍💻</div>
+          <div class="owner__chair" aria-hidden="true">🪑</div>
+        </div>
+
+        <div class="desk">
+          <div class="desk__items" id="slots" role="group" aria-label="Вещи на столе"></div>
+          <div class="desk__top" aria-hidden="true">
+            <span class="desk__monitor">🖥️</span>
+            <span class="desk__lamp">💡</span>
+          </div>
+          <div class="desk__front" aria-hidden="true"></div>
+        </div>
+
+        <div class="cat" id="cat">
+          <div class="cat__bubble" id="cat-bubble"></div>
+          <div class="cat__face" id="cat-face">😺</div>
+        </div>
+
+        <div class="floor" aria-hidden="true">
+          <div class="floor__debris" id="debris"></div>
+        </div>
+
+        <div class="fx" id="fx" aria-hidden="true"></div>
+        <div class="toasts" id="toasts" aria-live="polite"></div>
+      </section>
+
+      <div class="overlay" id="overlay" data-open="true">
+        <div class="card" id="card">
+          <p class="card__kicker">Секунду</p>
+          <h1 class="card__title">Кот-вредитель</h1>
+          <p class="card__loading">Кот подкрадывается к столу…</p>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

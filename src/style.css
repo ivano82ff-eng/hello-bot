@@ -14,6 +14,13 @@
   --panel: rgba(20, 13, 31, 0.62);
   --panel-line: rgba(255, 255, 255, 0.14);
   --emoji: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  /* Размеры сцены считаем и от ширины, и от высоты: на узком высоком телефоне
+     vw-размеры оказываются крошечными, а в горизонтальной ориентации — наоборот. */
+  --floor-h: clamp(64px, 15vh, 128px);
+  --face: clamp(46px, max(11vw, 8vh), 92px);
+  --cat: clamp(40px, max(10vw, 7.5vh), 80px);
+  --slot: clamp(50px, max(13vw, 9vh), 92px);
+  --item: clamp(26px, max(7vw, 5.6vh), 54px);
   color-scheme: dark;
 }
 
@@ -25,14 +32,20 @@ html,
 body {
   height: 100%;
   margin: 0;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: #150e20;
+  background: var(--wall-bottom);
   color: var(--ink);
   font-family: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .visually-hidden {
@@ -50,8 +63,6 @@ body {
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  max-width: 1180px;
-  margin: 0 auto;
   overflow: hidden;
   isolation: isolate;
 }
@@ -78,8 +89,8 @@ body {
 
 .wall-window {
   position: absolute;
-  top: 12%;
-  left: 7%;
+  top: 11%;
+  right: 7%;
   width: clamp(96px, 20vw, 190px);
   aspect-ratio: 4 / 5;
   border-radius: 10px 10px 4px 4px;
@@ -129,8 +140,8 @@ body {
 
 .wall-poster {
   position: absolute;
-  top: 14%;
-  right: 9%;
+  top: 46%;
+  right: 11%;
   display: grid;
   place-items: center;
   gap: 2px;
@@ -156,6 +167,35 @@ body {
   text-align: center;
 }
 
+.wall-note {
+  position: absolute;
+  top: 40%;
+  left: 9%;
+  width: clamp(78px, 17vw, 116px);
+  padding: 12px 8px 10px;
+  font-size: clamp(9px, 2.2vw, 12px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  color: #4a3a12;
+  background: linear-gradient(180deg, #ffe98a, #f7d45f);
+  border-radius: 3px;
+  transform: rotate(-4deg);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+.wall-note::before {
+  content: '📌';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  font-family: var(--emoji);
+  font-size: clamp(11px, 2.6vw, 15px);
+  transform: translateX(-50%);
+}
+
 @keyframes drift {
   from {
     transform: translateX(-20%);
@@ -171,17 +211,19 @@ body {
   position: relative;
   z-index: 10;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
-  padding: 10px clamp(10px, 3vw, 20px);
+  gap: clamp(4px, 1.4vw, 8px);
+  padding: calc(10px + env(safe-area-inset-top)) calc(clamp(10px, 3vw, 20px) + env(safe-area-inset-right))
+    10px calc(clamp(10px, 3vw, 20px) + env(safe-area-inset-left));
 }
 
 .hud__stat {
   display: grid;
   gap: 1px;
-  padding: 6px 12px;
-  min-width: 74px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 6px clamp(7px, 2.2vw, 12px);
   background: var(--panel);
   border: 1px solid var(--panel-line);
   border-radius: 14px;
@@ -189,9 +231,10 @@ body {
 }
 
 .hud__label {
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: clamp(8px, 2vw, 10px);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--ink-dim);
 }
 
@@ -229,10 +272,11 @@ body {
 
 .hud__sound {
   margin-left: auto;
-  width: 42px;
-  height: 42px;
+  flex: 0 0 auto;
+  width: clamp(38px, 10vw, 44px);
+  height: clamp(38px, 10vw, 44px);
   font-family: var(--emoji);
-  font-size: 18px;
+  font-size: clamp(15px, 4vw, 18px);
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--panel-line);
@@ -240,11 +284,6 @@ body {
   cursor: pointer;
   backdrop-filter: blur(8px);
   transition: transform 0.12s ease, background 0.2s ease;
-}
-
-.hud__sound:hover {
-  transform: translateY(-2px);
-  background: rgba(40, 27, 58, 0.8);
 }
 
 /* ---------- stage ---------- */
@@ -257,7 +296,7 @@ body {
   flex-direction: column;
   justify-content: flex-end;
   min-height: 0;
-  padding-bottom: clamp(96px, 18vh, 150px);
+  padding-bottom: calc(var(--floor-h) - 8px);
 }
 
 .stage::before {
@@ -282,13 +321,14 @@ body {
   opacity: 1;
 }
 
-.stage::after {
+.owner::before {
   content: 'СМОТРИТ!';
   position: absolute;
-  top: 4px;
+  bottom: calc(100% + 2px);
   left: 50%;
   z-index: 9;
   padding: 5px 14px;
+  white-space: nowrap;
   font-size: clamp(11px, 2.4vw, 15px);
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -302,7 +342,7 @@ body {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.stage.is-watching::after {
+.stage.is-watching .owner::before {
   opacity: 1;
   transform: translate(-50%, 0) scale(1);
 }
@@ -319,7 +359,7 @@ body {
 
 .owner__face {
   font-family: var(--emoji);
-  font-size: clamp(46px, 11vw, 88px);
+  font-size: var(--face);
   line-height: 1;
   filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.45));
   animation: bob 3.4s ease-in-out infinite;
@@ -386,15 +426,19 @@ body {
 
 .desk__items {
   display: flex;
-  justify-content: center;
+  justify-content: space-around;
   align-items: flex-end;
   gap: clamp(4px, 1.6vw, 20px);
-  padding: 0 clamp(6px, 8vw, 90px);
+  max-width: min(100%, 780px);
+  margin-inline: auto;
+  padding: 0 clamp(6px, 2vw, 24px);
 }
 
 .slot {
   position: relative;
-  width: clamp(50px, 13vw, 88px);
+  width: var(--slot);
+  min-width: 48px;
+  min-height: 48px;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
@@ -418,15 +462,39 @@ body {
 .slot__item {
   position: relative;
   font-family: var(--emoji);
-  font-size: clamp(26px, 7vw, 52px);
+  font-size: var(--item);
   line-height: 1;
   filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.45));
   transition: transform 0.14s ease, filter 0.2s ease;
 }
 
-.slot:hover .slot__item,
+@media (hover: hover) {
+  .slot:hover .slot__item {
+    transform: translateY(-7px) scale(1.08) rotate(-4deg);
+  }
+
+  .slot:hover .slot__key {
+    opacity: 1;
+  }
+
+  .hud__sound:hover {
+    transform: translateY(-2px);
+    background: rgba(40, 27, 58, 0.8);
+  }
+
+  .card__button:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.06);
+    box-shadow: 0 18px 38px rgba(255, 145, 76, 0.38);
+  }
+}
+
 .slot:focus-visible .slot__item {
   transform: translateY(-7px) scale(1.08) rotate(-4deg);
+}
+
+.slot:active .slot__item {
+  transform: translateY(3px) scale(0.92);
 }
 
 .slot:focus-visible {
@@ -450,8 +518,10 @@ body {
   transition: opacity 0.2s ease;
 }
 
-.slot:hover .slot__key {
-  opacity: 1;
+@media (hover: none) {
+  .slot__key {
+    display: none;
+  }
 }
 
 .stage.is-watching .slot {
@@ -511,12 +581,13 @@ body {
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
 }
 
+/* На широком экране стоят по краям группы предметов, а не по краям стола. */
 .desk__monitor {
-  left: clamp(6px, 3vw, 34px);
+  left: max(clamp(6px, 3vw, 34px), calc(50% - 470px));
 }
 
 .desk__lamp {
-  right: clamp(6px, 3vw, 34px);
+  right: max(clamp(6px, 3vw, 34px), calc(50% - 470px));
   animation: flicker 5s ease-in-out infinite;
 }
 
@@ -531,9 +602,35 @@ body {
 }
 
 .desk__front {
-  height: clamp(40px, 9vh, 78px);
+  position: relative;
+  height: clamp(44px, 13vh, 110px);
   background: linear-gradient(180deg, var(--wood-dark), #4a2c14);
   box-shadow: inset 0 -14px 24px rgba(0, 0, 0, 0.4);
+}
+
+.desk__front::before {
+  content: '';
+  position: absolute;
+  top: clamp(8px, 2vh, 18px);
+  left: 50%;
+  width: min(78vw, 560px);
+  height: clamp(24px, 6vh, 54px);
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-top-color: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  transform: translateX(-50%);
+}
+
+.desk__front::after {
+  content: '';
+  position: absolute;
+  top: calc(clamp(8px, 2vh, 18px) + clamp(9px, 2.4vh, 22px));
+  left: 50%;
+  width: clamp(30px, 7vw, 60px);
+  height: 5px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(0, 0, 0, 0.35));
+  border-radius: 3px;
+  transform: translateX(-50%);
 }
 
 /* ---------- cat ---------- */
@@ -541,7 +638,7 @@ body {
 .cat {
   position: absolute;
   left: 50%;
-  bottom: clamp(28px, 7vh, 56px);
+  bottom: calc(clamp(28px, 7vh, 56px) + env(safe-area-inset-bottom));
   z-index: 5;
   display: grid;
   justify-items: center;
@@ -550,7 +647,7 @@ body {
 
 .cat__face {
   font-family: var(--emoji);
-  font-size: clamp(40px, 10vw, 76px);
+  font-size: var(--cat);
   line-height: 1;
   filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5));
   animation: bob 2.6s ease-in-out infinite;
@@ -569,7 +666,8 @@ body {
   background: rgba(20, 13, 31, 0.86);
   border: 1px solid var(--panel-line);
   border-radius: 14px 14px 4px 14px;
-  white-space: nowrap;
+  max-width: min(52vw, 240px);
+  text-align: center;
   opacity: 0;
   transform: translateY(6px);
   transition: opacity 0.16s ease, transform 0.16s ease;
@@ -586,9 +684,10 @@ body {
   position: absolute;
   inset: auto 0 0 0;
   z-index: 1;
-  height: clamp(60px, 14vh, 120px);
-  background: linear-gradient(180deg, var(--floor), #1a1224);
-  box-shadow: inset 0 12px 24px rgba(0, 0, 0, 0.45);
+  height: var(--floor-h);
+  background: linear-gradient(180deg, #3d2c52, #221731);
+  border-top: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 14px 26px rgba(0, 0, 0, 0.4);
 }
 
 .floor__debris {
@@ -598,9 +697,9 @@ body {
 
 .debris__piece {
   position: absolute;
-  bottom: calc(14px + var(--depth, 0px));
+  bottom: calc(16px + var(--depth, 0px));
   font-family: var(--emoji);
-  font-size: clamp(15px, 3.4vw, 26px);
+  font-size: clamp(18px, max(4vw, 2.8vh), 30px);
   transform: translateX(-50%) rotate(var(--tilt, 0deg));
   filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5));
   animation: land 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -674,14 +773,16 @@ body {
   }
 }
 
+/* Подсказки живут в пустой части стены слева: на низких экранах любое место
+   у пола перекрывало бы вещи на столе. */
 .toasts {
   position: absolute;
-  left: clamp(8px, 3vw, 20px);
-  bottom: clamp(8px, 2vh, 18px);
+  left: calc(clamp(8px, 3vw, 20px) + env(safe-area-inset-left));
+  top: 6px;
   z-index: 7;
   display: grid;
   gap: 6px;
-  max-width: min(70vw, 360px);
+  max-width: min(58vw, 340px);
   pointer-events: none;
 }
 
@@ -858,12 +959,6 @@ kbd {
   transition: transform 0.14s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
-.card__button:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.06);
-  box-shadow: 0 18px 38px rgba(255, 145, 76, 0.38);
-}
-
 .card__button:active {
   transform: translateY(1px);
 }
@@ -904,25 +999,142 @@ kbd {
 
 /* ---------- responsive & motion ---------- */
 
-@media (max-width: 560px) {
+@media (max-width: 620px) {
   .wall-poster,
-  .desk__monitor {
+  .desk__monitor,
+  .desk__lamp {
     display: none;
   }
 
+  .desk__items {
+    gap: 6px;
+    padding: 0 6px;
+  }
+
+  /* Кот уходит к правому краю, а его реплика раскрывается влево, чтобы не уехать за экран. */
+  .cat {
+    left: auto;
+    right: 6%;
+    justify-items: end;
+    transform: none;
+  }
+
   .toasts {
-    max-width: 62vw;
+    max-width: 54vw;
+  }
+
+  .toast {
+    padding: 6px 11px;
+  }
+
+  .toast:not(:last-child):not(:nth-last-child(2)) {
+    display: none;
+  }
+
+  .wall-note {
+    top: 36%;
+    left: 7%;
+  }
+
+  .card__list {
+    gap: 6px;
+  }
+}
+
+@media (hover: none) {
+  .keys-hint {
+    display: none;
   }
 }
 
 @media (max-height: 620px) {
-  .wall-window,
   .wall-poster {
     display: none;
   }
 
-  .stage {
-    padding-bottom: clamp(72px, 14vh, 110px);
+  .wall-window {
+    top: 8%;
+  }
+
+  .wall-note {
+    top: 42%;
+  }
+}
+
+/* Телефон в горизонтальной ориентации: высоты мало, поэтому сцена уменьшается вся целиком. */
+@media (max-height: 520px) {
+  :root {
+    --floor-h: clamp(46px, 15vh, 84px);
+    --face: clamp(36px, max(14vh, 4vw), 68px);
+    --cat: clamp(32px, max(13vh, 3.6vw), 62px);
+    --slot: clamp(46px, max(16vh, 6vw), 78px);
+    --item: clamp(24px, max(9vh, 3.6vw), 46px);
+  }
+
+  .wall-window,
+  .wall-note,
+  .desk__monitor,
+  .desk__lamp,
+  .owner__chair {
+    display: none;
+  }
+
+  .toast:not(:last-child):not(:nth-last-child(2)) {
+    display: none;
+  }
+
+  .cat {
+    justify-items: end;
+  }
+
+  .hud {
+    padding-top: calc(6px + env(safe-area-inset-top));
+    padding-bottom: 6px;
+  }
+
+  .hud__stat {
+    padding: 4px 10px;
+  }
+
+  .desk__items {
+    gap: clamp(10px, 4vw, 46px);
+  }
+
+  .toasts {
+    max-width: min(40vw, 300px);
+  }
+
+  .owner__bubble {
+    margin-bottom: 2px;
+    padding: 4px 10px;
+    font-size: clamp(11px, 3vh, 14px);
+  }
+
+  .desk__front {
+    height: clamp(26px, 8vh, 54px);
+  }
+
+  .cat {
+    left: auto;
+    right: clamp(10px, 6vw, 60px);
+    bottom: calc(clamp(12px, 3.5vh, 26px) + env(safe-area-inset-bottom));
+    transform: none;
+  }
+
+  .card {
+    padding: 16px 20px;
+  }
+
+  .card__title {
+    font-size: clamp(20px, 6vh, 28px);
+  }
+
+  .card__list {
+    margin-bottom: 12px;
+  }
+
+  .card__button {
+    padding: 11px 18px;
   }
 }
 

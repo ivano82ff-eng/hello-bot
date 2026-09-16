@@ -48,6 +48,15 @@ function lerp(from: number, to: number, t: number): number {
   return from + (to - from) * Math.min(1, Math.max(0, t));
 }
 
+function buzz(pattern: number | number[]): void {
+  if (typeof navigator.vibrate !== 'function') return;
+  try {
+    navigator.vibrate(pattern);
+  } catch {
+    /* вибрация — приятный бонус, её отсутствие ничего не ломает */
+  }
+}
+
 function weightedItem(exclude: Item | null): Item {
   const pool = ITEMS.filter((item) => item !== exclude);
   const total = pool.reduce((sum, item) => sum + item.weight, 0);
@@ -119,7 +128,17 @@ export class Game {
       hint.textContent = String(index + 1);
       button.append(itemEl, hint);
 
-      button.addEventListener('click', () => this.push(index));
+      // pointerdown убирает 300 мс задержки тапа; preventDefault гасит зум по двойному тапу
+      // и синтетический click, чтобы удар лапой не сработал дважды.
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        this.push(index);
+      });
+      button.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        this.push(index);
+      });
       this.slotsRoot.append(button);
 
       return { index, button, itemEl, item: null, respawnAt: 0, busy: false } satisfies Slot;
@@ -171,7 +190,11 @@ export class Game {
         которую нужно исправить.
       </p>
       <ul class="card__list">
-        <li><b>Жми на вещи</b>, чтобы сбросить их со стола. Или клавиши <kbd>1</kbd>–<kbd>5</kbd>.</li>
+        <li>
+          <b>Жми на вещи</b>, чтобы сбросить их со стола.<span class="keys-hint">
+            Или клавиши <kbd>1</kbd>–<kbd>5</kbd>.</span
+          >
+        </li>
         <li>Когда хозяин <b>отвернулся</b> (🧑‍💻) — можно всё.</li>
         <li>Он оборачивается с 🤨, а потом смотрит прямо на тебя (👀). Тогда лапы прочь.</li>
         <li>Поймает трижды — выгонит в коридор. У тебя <b>60 секунд</b>.</li>
@@ -355,6 +378,7 @@ export class Game {
     this.after(150, () => {
       if (item.points >= 60) sfx.jackpot();
       sfx.drop();
+      buzz(item.points >= 30 ? 26 : 12);
       this.shake(this.stage, item.points >= 30 ? 8 : 4);
     });
 
@@ -389,6 +413,7 @@ export class Game {
     this.shout(pick(OWNER_CATCH_LINES));
     this.catFace.textContent = '🙀';
     sfx.caught();
+    buzz([50, 40, 90]);
     this.toast('Пойман с поднятой лапой.', 'bad');
 
     this.after(520, () => {

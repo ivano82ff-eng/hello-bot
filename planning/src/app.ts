@@ -8,6 +8,8 @@ import {
 import {
   GRID_END_HOUR,
   GRID_START_HOUR,
+  gridLabelCount,
+  gridSlotCount,
   datesFromStartMinute,
   maxTopPercent,
   minuteFromCanvasY,
@@ -265,12 +267,12 @@ export class PlanningApp {
           </div>
           <div class="time-grid">
             <div class="time-grid__labels">
-              ${Array.from({ length: GRID_END_HOUR - GRID_START_HOUR }, (_, i) => {
+              ${Array.from({ length: gridLabelCount() }, (_, i) => {
                 const hour = GRID_START_HOUR + i;
                 return `<span>${String(hour).padStart(2, '0')}:00</span>`;
               }).join('')}
             </div>
-            <div class="time-grid__canvas" data-action="pick-slot">
+            <div class="time-grid__canvas" data-action="pick-slot" style="--grid-slots: ${gridSlotCount()}">
               ${this.renderSlotGuides()}
               ${this.renderLessonBlocks(overlapNumbers, lessons)}
             </div>
@@ -281,7 +283,7 @@ export class PlanningApp {
   }
 
   private renderSlotGuides(): string {
-    const slots = GRID_END_HOUR - GRID_START_HOUR;
+    const slots = gridSlotCount();
     return Array.from({ length: slots }, (_, i) => {
       const top = (i / slots) * 100;
       const height = (1 / slots) * 100;

@@ -2,6 +2,14 @@ export const GRID_START_HOUR = 8;
 export const GRID_END_HOUR = 22;
 export const GRID_SNAP_MINUTES = 15;
 
+export function gridSlotCount(): number {
+  return GRID_END_HOUR - GRID_START_HOUR;
+}
+
+export function gridLabelCount(): number {
+  return gridSlotCount() + 1;
+}
+
 export function gridTotalMinutes(): number {
   return (GRID_END_HOUR - GRID_START_HOUR) * 60;
 }

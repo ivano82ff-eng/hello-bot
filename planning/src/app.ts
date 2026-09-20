@@ -8,6 +8,7 @@ import {
 import { findOverlappingLesson, overlappingLessonNumbers } from './overlap';
 import { requestNotificationPermission, startLessonReminders } from './notifications';
 import { loadConfig, saveConfig } from './storage';
+import { applyTheme, loadTheme, saveTheme, type Theme } from './theme';
 import type {
   AppConfig,
   CreateLessonInput,
@@ -32,10 +33,12 @@ const PAYMENT_LABELS: Record<PaymentStatus, string> = {
 };
 const GRID_START_HOUR = 8;
 const GRID_END_HOUR = 22;
+const SLOT_MINUTES = 60;
 
 export class PlanningApp {
   private readonly root: HTMLElement;
   private config: AppConfig;
+  private theme: Theme;
   private students: Student[] = [];
   private lessons: Lesson[] = [];
   private tab: Tab = 'schedule';
@@ -46,6 +49,9 @@ export class PlanningApp {
   private modal: Modal | null = null;
   private overlapMessage: string | null = null;
   private pendingPhoto: File | null = null;
+  private photoPreviewUrl: string | null = null;
+  private pendingLessonStart: Date | null = null;
+  private pendingLessonEnd: Date | null = null;
   private loading = false;
   private error: string | null = null;
   private stopReminders: (() => void) | null = null;
@@ -54,6 +60,7 @@ export class PlanningApp {
     this.root = root;
     const now = new Date();
     this.config = loadConfig();
+    this.theme = loadTheme();
     this.viewMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     this.selectedDay = startOfDay(now);
     this.render();
@@ -90,12 +97,6 @@ export class PlanningApp {
     return this.students.find((student) => student.number === number);
   }
 
-  private lessonsForStudent(number: number): Lesson[] {
-    return this.lessons.filter(
-      (lesson) => lesson.state === 'open' && lesson.meta.studentNumber === number,
-    );
-  }
-
   private lessonsForDay(day: Date): Lesson[] {
     return this.lessons.filter(
       (lesson) => lesson.state === 'open' && lessonOnDay(lesson.meta, day),
@@ -112,6 +113,9 @@ export class PlanningApp {
             <h1 class="header__title">Учёт учеников и расписание</h1>
           </div>
           <div class="header__actions">
+            <button class="btn btn--ghost" type="button" data-action="toggle-theme" title="День / ночь">
+              ${this.theme === 'dark' ? '☀️ День' : '🌙 Ночь'}
+            </button>
             <button class="btn btn--ghost" type="button" data-action="open-settings">Настройки</button>
             <button class="btn btn--ghost" type="button" data-action="notify-permission">Напоминания</button>
             <button class="btn" type="button" data-action="refresh" ${this.loading ? 'disabled' : ''}>
@@ -121,8 +125,8 @@ export class PlanningApp {
         </header>
 
         ${this.error ? `<div class="banner banner--error" role="alert">${escapeHtml(this.error)}</div>` : ''}
-        ${this.config.demoMode ? '<div class="banner banner--info">Демо-режим: данные локальные, GitHub не вызывается. В расписании уже есть перехлёст для проверки.</div>' : ''}
-        ${overlapNumbers.size ? `<div class="banner banner--warn" role="alert">⚠ Перехлёст занятий: ${overlapNumbers.size} занятий пересекаются по времени. Исправьте расписание.</div>` : ''}
+        ${this.config.demoMode ? '<div class="banner banner--info">Демо-режим: данные локальные, GitHub не вызывается.</div>' : ''}
+        ${overlapNumbers.size ? `<div class="banner banner--warn" role="alert">⚠ Перехлёст занятий: ${overlapNumbers.size} занятий пересекаются по времени.</div>` : ''}
 
         <nav class="tabs" aria-label="Разделы">
           <button class="tab${this.tab === 'students' ? ' tab--active' : ''}" type="button" data-action="tab" data-tab="students">Ученики</button>
@@ -152,42 +156,30 @@ export class PlanningApp {
       </section>
       <section class="student-grid">
         ${this.students
-          .map((student) => {
-            const lessons = this.lessonsForStudent(student.number)
-              .sort((a, b) => a.meta.start.localeCompare(b.meta.start))
-              .slice(0, 4);
-            return `
-              <article class="student-card">
-                <div class="student-card__photo">
-                  ${student.meta.photoUrl
-                    ? `<img src="${escapeAttr(student.meta.photoUrl)}" alt="" />`
-                    : '<span class="student-card__placeholder">👤</span>'}
-                </div>
-                <div class="student-card__body">
-                  <h2>${escapeHtml(student.name)}</h2>
-                  <p class="student-card__course">${escapeHtml(student.meta.course)}</p>
-                  <p class="student-card__payment payment--${student.meta.paymentStatus}">
-                    ${PAYMENT_LABELS[student.meta.paymentStatus]} · ${formatMoney(student.meta.paymentAmount)}
-                  </p>
-                  ${lessons.length
-                    ? `<ul class="student-card__lessons">${lessons
-                        .map(
-                          (lesson) =>
-                            `<li>${formatLessonShort(lesson)}</li>`,
-                        )
-                        .join('')}</ul>`
-                    : '<p class="muted">Занятий пока нет</p>'}
-                  <button class="btn btn--ghost" type="button" data-action="edit-student" data-number="${student.number}">Изменить</button>
-                </div>
-              </article>
-            `;
-          })
+          .map((student) => `
+            <article class="student-card" data-action="edit-student" data-number="${student.number}" role="button" tabindex="0">
+              <div class="student-card__photo">
+                ${student.meta.photoUrl
+                  ? `<img src="${escapeAttr(student.meta.photoUrl)}" alt="" />`
+                  : '<span class="student-card__placeholder">👤</span>'}
+              </div>
+              <div class="student-card__body">
+                <h2>${escapeHtml(student.name)}</h2>
+                <p class="student-card__course">${escapeHtml(student.meta.course)}</p>
+                <p class="student-card__payment payment--${student.meta.paymentStatus}">
+                  ${PAYMENT_LABELS[student.meta.paymentStatus]} · ${formatMoney(student.meta.paymentAmount)}
+                </p>
+                <span class="student-card__edit-hint">Нажмите, чтобы изменить</span>
+              </div>
+            </article>
+          `)
           .join('')}
       </section>
     `;
   }
 
   private renderSchedule(overlapNumbers: Set<number>): string {
+    const lessons = this.lessonsForDay(this.selectedDay);
     return `
       <div class="schedule-grid">
         <section class="panel calendar-panel" aria-label="Календарь месяца">
@@ -203,7 +195,7 @@ export class PlanningApp {
         <section class="panel day-panel" aria-label="Сетка дня">
           <div class="day-panel__header">
             <h2>${formatDayTitle(this.selectedDay)}</h2>
-            <button class="btn" type="button" data-action="new-lesson">+ Занятие</button>
+            <p class="hint day-panel__hint">Кликните по свободному времени → выберите ученика</p>
           </div>
           <div class="time-grid">
             <div class="time-grid__labels">
@@ -212,13 +204,23 @@ export class PlanningApp {
                 return `<span>${String(hour).padStart(2, '0')}:00</span>`;
               }).join('')}
             </div>
-            <div class="time-grid__canvas">
-              ${this.renderLessonBlocks(overlapNumbers)}
+            <div class="time-grid__canvas" data-action="pick-slot">
+              ${this.renderSlotGuides()}
+              ${this.renderLessonBlocks(overlapNumbers, lessons)}
             </div>
           </div>
         </section>
       </div>
     `;
+  }
+
+  private renderSlotGuides(): string {
+    const slots = GRID_END_HOUR - GRID_START_HOUR;
+    return Array.from({ length: slots }, (_, i) => {
+      const top = (i / slots) * 100;
+      const height = (1 / slots) * 100;
+      return `<div class="time-slot-guide" style="top:${top}%;height:${height}%"></div>`;
+    }).join('');
   }
 
   private renderMonthCells(): string {
@@ -236,8 +238,7 @@ export class PlanningApp {
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
       const count = this.lessonsForDay(date).length;
-      const dayLessons = this.lessonsForDay(date);
-      const hasOverlap = overlappingLessonNumbers(dayLessons).size > 0;
+      const hasOverlap = overlappingLessonNumbers(this.lessonsForDay(date)).size > 0;
       cells.push(`
         <button
           class="day-cell${sameDay(date, this.selectedDay) ? ' day-cell--selected' : ''}${sameDay(date, today) ? ' day-cell--today' : ''}${hasOverlap ? ' day-cell--overlap' : ''}"
@@ -253,9 +254,8 @@ export class PlanningApp {
     return cells.join('');
   }
 
-  private renderLessonBlocks(overlapNumbers: Set<number>): string {
-    const lessons = this.lessonsForDay(this.selectedDay);
-    if (!lessons.length) return '<p class="empty-grid">На этот день занятий нет.</p>';
+  private renderLessonBlocks(overlapNumbers: Set<number>, lessons: Lesson[]): string {
+    if (!lessons.length) return '';
 
     const totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
     const gridStart = GRID_START_HOUR * 60;
@@ -277,7 +277,6 @@ export class PlanningApp {
             data-action="edit-lesson"
             data-number="${lesson.number}"
             style="top:${top}%;height:${height}%"
-            title="${overlap ? 'Перехлёст по времени' : ''}"
           >
             <strong>${escapeHtml(student?.name ?? 'Ученик')}</strong>
             <span>${formatTimeRange(lesson.meta.start, lesson.meta.end)}</span>
@@ -286,6 +285,11 @@ export class PlanningApp {
         `;
       })
       .join('');
+  }
+
+  private currentPhotoPreview(): string | null {
+    if (this.photoPreviewUrl) return this.photoPreviewUrl;
+    return this.editingStudent?.meta.photoUrl ?? null;
   }
 
   private renderModal(): string {
@@ -297,7 +301,6 @@ export class PlanningApp {
           <div class="modal__body">
             <h2>Перехлёст занятий</h2>
             <p>${escapeHtml(this.overlapMessage ?? 'Два занятия пересекаются по времени.')}</p>
-            <p class="hint">Сохранение заблокировано. Измените время или закройте конфликтующее занятие.</p>
             <div class="modal__actions">
               <button class="btn" type="button" data-action="close-modal">Понятно</button>
             </div>
@@ -311,11 +314,11 @@ export class PlanningApp {
         <dialog class="modal" open>
           <form class="modal__form" data-form="settings">
             <h2>Настройки GitHub</h2>
-            <label>Владелец (owner)<input name="owner" value="${escapeAttr(this.config.owner)}" required /></label>
-            <label>Репозиторий (repo)<input name="repo" value="${escapeAttr(this.config.repo)}" required /></label>
-            <label>Fine-grained PAT<input name="token" type="password" value="${escapeAttr(this.config.token)}" autocomplete="off" /></label>
+            <label>Owner (данные)<input name="owner" value="${escapeAttr(this.config.owner)}" required /></label>
+            <label>Repo (данные)<input name="repo" value="${escapeAttr(this.config.repo)}" required /></label>
+            <label>PAT<input name="token" type="password" value="${escapeAttr(this.config.token)}" autocomplete="off" /></label>
             <label class="checkbox"><input name="demoMode" type="checkbox" ${this.config.demoMode ? 'checked' : ''} /> Демо-режим</label>
-            <p class="hint">Токен в <code>localStorage</code>. Нужны права Issues и Contents (read/write) для фото.</p>
+            <p class="hint">Фото хранятся в публичном ${this.config.assetsOwner}/${this.config.assetsRepo}. PAT — только в браузере.</p>
             <div class="modal__actions">
               <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
               <button class="btn" type="submit">Сохранить</button>
@@ -327,10 +330,20 @@ export class PlanningApp {
 
     if (this.modal === 'student') {
       const student = this.editingStudent;
+      const preview = this.currentPhotoPreview();
       return `
         <dialog class="modal" open>
           <form class="modal__form" data-form="student">
             <h2>${student ? 'Изменить ученика' : 'Новый ученик'}</h2>
+            <div class="photo-picker">
+              <button class="photo-picker__btn" type="button" data-action="pick-photo">
+                ${preview
+                  ? `<img src="${escapeAttr(preview)}" alt="" class="photo-picker__img" />`
+                  : '<span class="photo-picker__placeholder">👤</span>'}
+                <span class="photo-picker__label">${preview ? 'Заменить фото' : 'Добавить фото'}</span>
+              </button>
+              <input class="photo-picker__input" name="photo" type="file" accept="image/*" hidden />
+            </div>
             <label>Имя<input name="name" value="${escapeAttr(student?.name ?? '')}" required maxlength="120" /></label>
             <label>Курс<input name="course" value="${escapeAttr(student?.meta.course ?? '')}" required /></label>
             <label>Статус оплаты
@@ -341,7 +354,6 @@ export class PlanningApp {
               </select>
             </label>
             <label>Сумма (₽)<input name="paymentAmount" type="number" min="0" step="100" value="${student?.meta.paymentAmount ?? 0}" /></label>
-            <label>Фото<input name="photo" type="file" accept="image/*" /></label>
             <label>Заметки<textarea name="notes" rows="3">${escapeHtml(student?.notes ?? '')}</textarea></label>
             <div class="modal__actions">
               <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
@@ -354,19 +366,28 @@ export class PlanningApp {
 
     const lesson = this.editingLesson;
     const defaultStudent = lesson?.meta.studentNumber ?? this.students[0]?.number ?? 0;
-    const startValue = lesson ? toDateInputValue(lesson.meta.start) : defaultStart(this.selectedDay);
-    const endValue = lesson ? toDateInputValue(lesson.meta.end) : defaultEnd(this.selectedDay);
+    const startValue = lesson
+      ? toDateInputValue(lesson.meta.start)
+      : this.pendingLessonStart
+        ? toLocalInput(this.pendingLessonStart)
+        : defaultStart(this.selectedDay);
+    const endValue = lesson
+      ? toDateInputValue(lesson.meta.end)
+      : this.pendingLessonEnd
+        ? toLocalInput(this.pendingLessonEnd)
+        : defaultEnd(this.selectedDay);
 
     return `
       <dialog class="modal" open>
         <form class="modal__form" data-form="lesson">
           <h2>${lesson ? 'Изменить занятие' : 'Новое занятие'}</h2>
+          <p class="hint">Расписание отдельно от карточки ученика</p>
           <label>Ученик
             <select name="studentNumber" required>
               ${this.students
                 .map(
-                  (student) =>
-                    `<option value="${student.number}" ${student.number === defaultStudent ? 'selected' : ''}>${escapeHtml(student.name)}</option>`,
+                  (s) =>
+                    `<option value="${s.number}" ${s.number === defaultStudent ? 'selected' : ''}>${escapeHtml(s.name)}</option>`,
                 )
                 .join('')}
             </select>
@@ -375,7 +396,7 @@ export class PlanningApp {
           <label>Конец<input name="end" type="datetime-local" value="${escapeAttr(endValue)}" required /></label>
           <label>Заметки<textarea name="notes" rows="3">${escapeHtml(lesson?.notes ?? '')}</textarea></label>
           <div class="modal__actions">
-            ${lesson ? `<button class="btn btn--danger" type="button" data-action="delete-lesson" data-number="${lesson.number}">Удалить</button>` : ''}
+            ${lesson ? `<button class="btn btn--danger" type="button" data-action="delete-lesson">Удалить</button>` : ''}
             <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
             <button class="btn" type="submit">${lesson ? 'Сохранить' : 'Создать'}</button>
           </div>
@@ -385,6 +406,12 @@ export class PlanningApp {
   }
 
   private bindEvents(): void {
+    this.root.querySelector('[data-action="toggle-theme"]')?.addEventListener('click', () => {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark';
+      saveTheme(this.theme);
+      applyTheme(this.theme);
+      this.render();
+    });
     this.root.querySelector('[data-action="refresh"]')?.addEventListener('click', () => void this.refreshAll());
     this.root.querySelector('[data-action="open-settings"]')?.addEventListener('click', () => {
       this.modal = 'settings';
@@ -392,7 +419,7 @@ export class PlanningApp {
     });
     this.root.querySelector('[data-action="notify-permission"]')?.addEventListener('click', () => {
       void requestNotificationPermission().then((granted) => {
-        this.error = granted ? null : 'Разрешите уведомления в браузере для напоминаний при открытой вкладке.';
+        this.error = granted ? null : 'Разрешите уведомления в браузере.';
         this.render();
       });
     });
@@ -401,10 +428,7 @@ export class PlanningApp {
         this.modal = 'lesson';
         this.overlapMessage = null;
       } else {
-        this.modal = null;
-        this.editingStudent = null;
-        this.editingLesson = null;
-        this.pendingPhoto = null;
+        this.closeModal();
       }
       this.render();
     });
@@ -416,29 +440,32 @@ export class PlanningApp {
     });
     this.root.querySelector('[data-action="new-student"]')?.addEventListener('click', () => {
       this.editingStudent = null;
+      this.clearPhotoPreview();
       this.modal = 'student';
       this.render();
     });
-    this.root.querySelectorAll('[data-action="edit-student"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const number = Number((button as HTMLButtonElement).dataset.number);
-        this.editingStudent = this.students.find((student) => student.number === number) ?? null;
-        this.modal = 'student';
-        this.render();
+    this.root.querySelectorAll('[data-action="edit-student"]').forEach((el) => {
+      el.addEventListener('click', () => this.openStudentEdit(Number((el as HTMLElement).dataset.number)));
+      el.addEventListener('keydown', (event) => {
+        const keyEvent = event as KeyboardEvent;
+        if (keyEvent.key === 'Enter' || keyEvent.key === ' ') {
+          keyEvent.preventDefault();
+          this.openStudentEdit(Number((el as HTMLElement).dataset.number));
+        }
       });
     });
-    this.root.querySelector('[data-action="new-lesson"]')?.addEventListener('click', () => {
+    this.root.querySelector('[data-action="pick-slot"]')?.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('.lesson-block')) return;
       if (!this.students.length) {
-        this.error = 'Сначала добавьте хотя бы одного ученика.';
+        this.error = 'Сначала добавьте ученика.';
         this.render();
         return;
       }
-      this.editingLesson = null;
-      this.modal = 'lesson';
-      this.render();
+      this.openLessonAtClick(event as MouseEvent);
     });
     this.root.querySelectorAll('[data-action="edit-lesson"]').forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
         const number = Number((button as HTMLButtonElement).dataset.number);
         this.editingLesson = this.lessons.find((lesson) => lesson.number === number) ?? null;
         this.modal = 'lesson';
@@ -471,6 +498,8 @@ export class PlanningApp {
         repo: String(data.get('repo') ?? '').trim(),
         token: String(data.get('token') ?? '').trim(),
         demoMode: data.get('demoMode') === 'on',
+        assetsOwner: this.config.assetsOwner,
+        assetsRepo: this.config.assetsRepo,
       };
       saveConfig(this.config);
       this.modal = null;
@@ -482,9 +511,18 @@ export class PlanningApp {
       event.preventDefault();
       void this.submitStudentForm(studentForm);
     });
-    studentForm?.querySelector<HTMLInputElement>('input[name="photo"]')?.addEventListener('change', (event) => {
+    this.root.querySelector('[data-action="pick-photo"]')?.addEventListener('click', () => {
+      studentForm?.querySelector<HTMLInputElement>('.photo-picker__input')?.click();
+    });
+    studentForm?.querySelector<HTMLInputElement>('.photo-picker__input')?.addEventListener('change', (event) => {
       const input = event.target as HTMLInputElement;
-      this.pendingPhoto = input.files?.[0] ?? null;
+      const file = input.files?.[0];
+      if (!file) return;
+      this.pendingPhoto = file;
+      this.revokePhotoPreview();
+      this.photoPreviewUrl = URL.createObjectURL(file);
+      this.render();
+      this.bindPhotoInput(studentForm);
     });
 
     const lessonForm = this.root.querySelector<HTMLFormElement>('form[data-form="lesson"]');
@@ -496,6 +534,61 @@ export class PlanningApp {
       if (!this.editingLesson) return;
       void this.deleteLesson(this.editingLesson.number);
     });
+  }
+
+  private bindPhotoInput(studentForm: HTMLFormElement | null): void {
+    studentForm?.querySelector('[data-action="pick-photo"]')?.addEventListener('click', () => {
+      studentForm.querySelector<HTMLInputElement>('.photo-picker__input')?.click();
+    });
+  }
+
+  private openStudentEdit(number: number): void {
+    this.editingStudent = this.students.find((student) => student.number === number) ?? null;
+    this.clearPhotoPreview();
+    this.modal = 'student';
+    this.render();
+  }
+
+  private openLessonAtClick(event: MouseEvent): void {
+    const canvas = event.currentTarget as HTMLElement;
+    const rect = canvas.getBoundingClientRect();
+    const ratio = (event.clientY - rect.top) / rect.height;
+    const totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
+    const minuteOfDay = GRID_START_HOUR * 60 + ratio * totalMinutes;
+    const hour = Math.floor(minuteOfDay / 60);
+    const minute = Math.floor((minuteOfDay % 60) / 15) * 15;
+
+    const start = new Date(this.selectedDay);
+    start.setHours(hour, minute, 0, 0);
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + SLOT_MINUTES);
+
+    this.editingLesson = null;
+    this.modal = 'lesson';
+    this.pendingLessonStart = start;
+    this.pendingLessonEnd = end;
+    this.render();
+  }
+
+  private closeModal(): void {
+    this.modal = null;
+    this.editingStudent = null;
+    this.editingLesson = null;
+    this.pendingPhoto = null;
+    this.pendingLessonStart = null;
+    this.pendingLessonEnd = null;
+    this.clearPhotoPreview();
+  }
+
+  private clearPhotoPreview(): void {
+    this.revokePhotoPreview();
+    this.photoPreviewUrl = null;
+  }
+
+  private revokePhotoPreview(): void {
+    if (this.photoPreviewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(this.photoPreviewUrl);
+    }
   }
 
   private async submitStudentForm(form: HTMLFormElement): Promise<void> {
@@ -529,9 +622,7 @@ export class PlanningApp {
           meta: { ...input.meta, photoUrl },
         });
       }
-      this.modal = null;
-      this.editingStudent = null;
-      this.pendingPhoto = null;
+      this.closeModal();
       await this.refreshAll();
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -553,7 +644,7 @@ export class PlanningApp {
     const conflict = findOverlappingLesson(meta, this.lessons, this.editingLesson?.number);
     if (conflict) {
       const otherStudent = this.studentByNumber(conflict.meta.studentNumber);
-      this.overlapMessage = `Занятие «${student?.name ?? 'ученик'}» (${formatTimeRange(meta.start, meta.end)}) пересекается с «${otherStudent?.name ?? 'учеником'}» (${formatTimeRange(conflict.meta.start, conflict.meta.end)}).`;
+      this.overlapMessage = `Пересечение с «${otherStudent?.name ?? 'учеником'}» (${formatTimeRange(conflict.meta.start, conflict.meta.end)}).`;
       this.modal = 'overlap';
       this.render();
       return;
@@ -574,8 +665,7 @@ export class PlanningApp {
       } else {
         await api.createLesson(input);
       }
-      this.modal = null;
-      this.editingLesson = null;
+      this.closeModal();
       await this.refreshAll();
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -585,14 +675,13 @@ export class PlanningApp {
   }
 
   private async deleteLesson(number: number): Promise<void> {
-    if (!confirm('Удалить занятие (issue будет закрыт)?')) return;
+    if (!confirm('Отменить занятие (issue будет закрыт)?')) return;
     this.loading = true;
     this.render();
     try {
       const api = createPlanningApi(this.config);
       await api.deleteLesson(number);
-      this.modal = null;
-      this.editingLesson = null;
+      this.closeModal();
       await this.refreshAll();
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -615,11 +704,6 @@ function formatTimeRange(start: string, end: string): string {
   return `${new Date(start).toLocaleTimeString('ru-RU', opts)} – ${new Date(end).toLocaleTimeString('ru-RU', opts)}`;
 }
 
-function formatLessonShort(lesson: Lesson): string {
-  const date = new Date(lesson.meta.start);
-  return `${date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} ${formatTimeRange(lesson.meta.start, lesson.meta.end)}`;
-}
-
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat('ru-RU').format(amount) + ' ₽';
 }
@@ -627,13 +711,16 @@ function formatMoney(amount: number): string {
 function defaultStart(day: Date): string {
   const date = new Date(day);
   date.setHours(10, 0, 0, 0);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  return toLocalInput(date);
 }
 
 function defaultEnd(day: Date): string {
   const date = new Date(day);
   date.setHours(11, 0, 0, 0);
+  return toLocalInput(date);
+}
+
+function toLocalInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }

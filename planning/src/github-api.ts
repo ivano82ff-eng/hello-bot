@@ -34,11 +34,22 @@ export class GitHubPlanningApi implements PlanningApi {
   private readonly owner: string;
   private readonly repo: string;
   private readonly token: string;
+  private readonly assetsOwner: string;
+  private readonly assetsRepo: string;
+  private defaultBranch: string | null = null;
 
-  constructor(owner: string, repo: string, token: string) {
+  constructor(
+    owner: string,
+    repo: string,
+    token: string,
+    assetsOwner: string,
+    assetsRepo: string,
+  ) {
     this.owner = owner;
     this.repo = repo;
     this.token = token;
+    this.assetsOwner = assetsOwner;
+    this.assetsRepo = assetsRepo;
   }
 
   async listStudents(): Promise<Student[]> {
@@ -83,18 +94,23 @@ export class GitHubPlanningApi implements PlanningApi {
   }
 
   async uploadStudentPhoto(studentNumber: number, file: File): Promise<string> {
+    const branch = await this.getDefaultBranch(this.assetsOwner, this.assetsRepo);
     const path = `students/${studentNumber}-${Date.now()}.${extension(file.name)}`;
     const content = await fileToBase64(file);
-    const existing = await this.getFileSha(path);
-    await this.request(`/repos/${this.owner}/${this.repo}/contents/${path}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        message: `Фото ученика #${studentNumber}`,
-        content,
-        ...(existing ? { sha: existing } : {}),
-      }),
-    });
-    return `https://raw.githubusercontent.com/${this.owner}/${this.repo}/main/${path}`;
+    const existing = await this.getFileSha(this.assetsOwner, this.assetsRepo, path);
+    await this.request(
+      `/repos/${this.assetsOwner}/${this.assetsRepo}/contents/${path}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: `Фото ученика #${studentNumber}`,
+          content,
+          branch,
+          ...(existing ? { sha: existing } : {}),
+        }),
+      },
+    );
+    return `https://raw.githubusercontent.com/${this.assetsOwner}/${this.assetsRepo}/${branch}/${path}`;
   }
 
   async listLessons(): Promise<Lesson[]> {
@@ -152,10 +168,21 @@ export class GitHubPlanningApi implements PlanningApi {
     });
   }
 
-  private async getFileSha(path: string): Promise<string | null> {
+  private async getDefaultBranch(owner: string, repo: string): Promise<string> {
+    if (owner === this.assetsOwner && repo === this.assetsRepo && this.defaultBranch) {
+      return this.defaultBranch;
+    }
+    const info = await this.request<{ default_branch: string }>(`/repos/${owner}/${repo}`);
+    if (owner === this.assetsOwner && repo === this.assetsRepo) {
+      this.defaultBranch = info.default_branch;
+    }
+    return info.default_branch;
+  }
+
+  private async getFileSha(owner: string, repo: string, path: string): Promise<string | null> {
     try {
       const response = await this.request<ContentsResponse>(
-        `/repos/${this.owner}/${this.repo}/contents/${path}`,
+        `/repos/${owner}/${repo}/contents/${path}`,
       );
       return response.sha;
     } catch {

@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
   --bg: #10151f;
   --panel: #1a2332;
@@ -14,6 +15,23 @@
   --overlap: rgba(255, 107, 122, 0.22);
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
   font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f0f3f8;
+  --panel: #ffffff;
+  --panel-border: #d8dee9;
+  --text: #1a2332;
+  --muted: #5c6b82;
+  --accent: #3b7aed;
+  --accent-hover: #2f6ad8;
+  --danger: #d63a4a;
+  --warn: #c97a00;
+  --today: #e3f5e8;
+  --selected: #dce8ff;
+  --overlap: rgba(214, 58, 74, 0.15);
+  --shadow: 0 12px 40px rgba(26, 35, 50, 0.08);
 }
 
 * { box-sizing: border-box; }
@@ -106,6 +124,19 @@ body {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.student-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.student-card__edit-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .student-card__photo {
@@ -127,8 +158,57 @@ body {
 .payment--paid { color: #7ddea2; }
 .payment--partial { color: var(--warn); }
 .payment--unpaid { color: var(--danger); }
-.student-card__lessons { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 0.9rem; }
 .muted { color: var(--muted); font-size: 0.9rem; }
+
+.photo-picker { display: flex; justify-content: center; }
+
+.photo-picker__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 2px dashed var(--panel-border);
+  border-radius: 16px;
+  padding: 12px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  width: 140px;
+}
+
+.photo-picker__btn:hover { border-color: var(--accent); }
+
+.photo-picker__img,
+.photo-picker__placeholder {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.photo-picker__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.photo-picker__label { font-size: 0.85rem; color: var(--muted); }
+
+.day-panel__hint { margin: 0; flex: 1; text-align: right; }
+
+.time-slot-guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  border-bottom: 1px dashed rgba(127, 127, 127, 0.15);
+}
+
+.time-grid__canvas { cursor: crosshair; }
+
+.lesson-block { z-index: 2; }
 
 .schedule-grid {
   display: grid;
@@ -269,7 +349,7 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   padding: 10px 12px;
-  background: #0f1726;
+  background: var(--bg);
   color: var(--text);
   font: inherit;
 }

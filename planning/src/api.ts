@@ -6,5 +6,11 @@ export function createPlanningApi(config: AppConfig): PlanningApi {
   if (config.demoMode || !config.token || !config.owner || !config.repo) {
     return new MockPlanningApi();
   }
-  return new GitHubPlanningApi(config.owner, config.repo, config.token);
+  return new GitHubPlanningApi(
+    config.owner,
+    config.repo,
+    config.token,
+    config.assetsOwner,
+    config.assetsRepo,
+  );
 }

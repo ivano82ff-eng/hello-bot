@@ -36,6 +36,8 @@ export interface AppConfig {
   repo: string;
   token: string;
   demoMode: boolean;
+  assetsOwner: string;
+  assetsRepo: string;
 }
 
 export interface CreateStudentInput {

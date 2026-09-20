@@ -21,8 +21,8 @@ fi
 git remote get-url github >/dev/null 2>&1 || git remote add github "https://github.com/${REPO}.git"
 
 git push github main
-npm run deploy:gh-pages
-git push github "$(git rev-parse origin/gh-pages 2>/dev/null || git ls-remote origin refs/heads/gh-pages | awk '{print $1}')":gh-pages 2>/dev/null || true
+npm run build:pages
+npx gh-pages@6.2.0 -d dist --dotfiles -r "https://github.com/${REPO}.git" -m "Deploy planning app"
 
 # Prefer GitHub Actions source (workflow on main)
 gh api "repos/${REPO}/pages" -X POST \

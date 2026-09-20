@@ -51,9 +51,16 @@ body {
     linear-gradient(180deg, #e8edf5, var(--bg));
 }
 
-[data-theme='light'] .header__actions .btn--ghost,
+[data-theme='light'] .header__actions .btn.btn--ghost,
 [data-theme='light'] .tabs .tab:not(.tab--active) {
   color: var(--text);
+  background: var(--panel);
+  border-color: var(--panel-border);
+}
+
+[data-theme='light'] .header__actions .btn.btn--ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg);
 }
 
 .layout { max-width: 1280px; margin: 0 auto; padding: 24px; }
@@ -310,11 +317,20 @@ body {
   color: inherit;
   text-align: left;
   padding: 8px 10px;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
+}
+
+.lesson-block--dragging {
+  cursor: grabbing;
+  opacity: 0.9;
+  z-index: 6;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
 .lesson-block--overlap {

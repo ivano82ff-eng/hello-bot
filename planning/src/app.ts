@@ -5,6 +5,15 @@ import {
   startOfDay,
   toDateInputValue,
 } from './frontmatter';
+import {
+  GRID_END_HOUR,
+  GRID_START_HOUR,
+  datesFromStartMinute,
+  maxTopPercent,
+  minuteFromCanvasY,
+  minuteFromTopPercent,
+  topPercentFromMinute,
+} from './grid';
 import { findOverlappingLesson, overlappingLessonNumbers } from './overlap';
 import {
   computePaymentSummary,
@@ -22,6 +31,7 @@ import type {
   CreateLessonInput,
   CreateStudentInput,
   Lesson,
+  LessonMeta,
   PaymentStatus,
   Student,
 } from './types';
@@ -39,9 +49,19 @@ const PAYMENT_LABELS: Record<PaymentStatus, string> = {
   partial: 'Частично',
   unpaid: 'Не оплачено',
 };
-const GRID_START_HOUR = 8;
-const GRID_END_HOUR = 22;
 const SLOT_MINUTES = 60;
+const DRAG_THRESHOLD_PX = 5;
+
+interface LessonDragState {
+  lessonNumber: number;
+  pointerId: number;
+  startPointerY: number;
+  offsetY: number;
+  durationMs: number;
+  moved: boolean;
+  canvas: HTMLElement;
+  block: HTMLElement;
+}
 
 export class PlanningApp {
   private readonly root: HTMLElement;
@@ -67,6 +87,7 @@ export class PlanningApp {
   private readonly toastHost: HTMLElement;
   private escapeHandler: ((event: KeyboardEvent) => void) | null = null;
   private modalLessonCompleted = new Map<number, boolean>();
+  private dragState: LessonDragState | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -221,7 +242,7 @@ export class PlanningApp {
         <section class="panel day-panel" aria-label="Сетка дня">
           <div class="day-panel__header">
             <h2>${formatDayTitle(this.selectedDay)}</h2>
-            <p class="hint day-panel__hint">Кликните по свободному времени → выберите ученика</p>
+            <p class="hint day-panel__hint">Клик по свободному времени — новое занятие. Перетащите блок, чтобы сдвинуть время.</p>
           </div>
           <div class="time-grid">
             <div class="time-grid__labels">
@@ -297,17 +318,18 @@ export class PlanningApp {
         const height = Math.max(((endMin - startMin) / totalMinutes) * 100, 4);
         const overlap = overlapNumbers.has(lesson.number);
         return `
-          <button
+          <div
             class="lesson-block${overlap ? ' lesson-block--overlap' : ''}"
-            type="button"
-            data-action="edit-lesson"
+            data-action="lesson-block"
             data-number="${lesson.number}"
+            role="button"
+            tabindex="0"
             style="top:${top}%;height:${height}%"
           >
             <strong>${escapeHtml(student?.name ?? 'Ученик')}</strong>
             <span>${formatTimeRange(lesson.meta.start, lesson.meta.end)}</span>
             ${overlap ? '<span class="lesson-block__warn">⚠ перехлёст</span>' : ''}
-          </button>
+          </div>
         `;
       })
       .join('');
@@ -548,8 +570,12 @@ export class PlanningApp {
     this.escapeHandler = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !this.modal) return;
       if (this.modal === 'overlap') {
-        this.modal = 'lesson';
         this.overlapMessage = null;
+        if (this.editingLesson) {
+          this.modal = 'lesson';
+        } else {
+          this.modal = null;
+        }
       } else {
         this.closeModal();
       }
@@ -760,15 +786,7 @@ export class PlanningApp {
       }
       this.openLessonAtClick(event as MouseEvent);
     });
-    this.root.querySelectorAll('[data-action="edit-lesson"]').forEach((button) => {
-      button.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const number = Number((button as HTMLButtonElement).dataset.number);
-        this.editingLesson = this.lessons.find((lesson) => lesson.number === number) ?? null;
-        this.modal = 'lesson';
-        this.render();
-      });
-    });
+    this.bindLessonDrag();
     this.root.querySelector('[data-action="prev-month"]')?.addEventListener('click', () => {
       this.viewMonth = new Date(this.viewMonth.getFullYear(), this.viewMonth.getMonth() - 1, 1);
       this.render();
@@ -798,9 +816,15 @@ export class PlanningApp {
 
     this.modalHost.querySelector('[data-action="close-modal"]')?.addEventListener('click', () => {
       if (this.modal === 'overlap') {
-        this.modal = 'lesson';
         this.overlapMessage = null;
-        this.renderModalOverlay();
+        if (this.editingLesson) {
+          this.modal = 'lesson';
+          this.renderModalOverlay();
+        } else {
+          this.modal = null;
+          this.renderModalOverlay();
+          this.render();
+        }
         return;
       }
       this.closeModal();
@@ -883,23 +907,140 @@ export class PlanningApp {
 
   private openLessonAtClick(event: MouseEvent): void {
     const canvas = event.currentTarget as HTMLElement;
-    const rect = canvas.getBoundingClientRect();
-    const ratio = (event.clientY - rect.top) / rect.height;
-    const totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
-    const minuteOfDay = GRID_START_HOUR * 60 + ratio * totalMinutes;
-    const hour = Math.floor(minuteOfDay / 60);
-    const minute = Math.floor((minuteOfDay % 60) / 15) * 15;
-
-    const start = new Date(this.selectedDay);
-    start.setHours(hour, minute, 0, 0);
-    const end = new Date(start);
-    end.setMinutes(end.getMinutes() + SLOT_MINUTES);
+    const minuteOfDay = minuteFromCanvasY(event.clientY, canvas);
+    const { start, end } = datesFromStartMinute(this.selectedDay, minuteOfDay, SLOT_MINUTES * 60_000);
 
     this.editingLesson = null;
     this.modal = 'lesson';
     this.pendingLessonStart = start;
     this.pendingLessonEnd = end;
     this.render();
+  }
+
+  private bindLessonDrag(): void {
+    this.root.querySelectorAll('[data-action="lesson-block"]').forEach((block) => {
+      const element = block as HTMLElement;
+      element.addEventListener('pointerdown', (event) => this.onLessonPointerDown(event, element));
+      element.addEventListener('keydown', (event) => {
+        const keyEvent = event as KeyboardEvent;
+        if (keyEvent.key !== 'Enter' && keyEvent.key !== ' ') return;
+        keyEvent.preventDefault();
+        const number = Number(element.dataset.number);
+        this.editingLesson = this.lessons.find((lesson) => lesson.number === number) ?? null;
+        this.modal = 'lesson';
+        this.render();
+      });
+    });
+  }
+
+  private onLessonPointerDown(event: PointerEvent, block: HTMLElement): void {
+    event.stopPropagation();
+    const number = Number(block.dataset.number);
+    const lesson = this.lessons.find((item) => item.number === number);
+    const canvas = block.closest('[data-action="pick-slot"]') as HTMLElement | null;
+    if (!lesson || !canvas) return;
+
+    const start = new Date(lesson.meta.start);
+    const end = new Date(lesson.meta.end);
+    const blockRect = block.getBoundingClientRect();
+    block.setPointerCapture(event.pointerId);
+    this.dragState = {
+      lessonNumber: number,
+      pointerId: event.pointerId,
+      startPointerY: event.clientY,
+      offsetY: event.clientY - blockRect.top,
+      durationMs: end.getTime() - start.getTime(),
+      moved: false,
+      canvas,
+      block,
+    };
+    block.addEventListener('pointermove', this.onLessonPointerMove);
+    block.addEventListener('pointerup', this.onLessonPointerUp);
+    block.addEventListener('pointercancel', this.onLessonPointerUp);
+  }
+
+  private onLessonPointerMove = (event: PointerEvent): void => {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    const dy = event.clientY - this.dragState.startPointerY;
+    if (!this.dragState.moved && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
+
+    this.dragState.moved = true;
+    const blockTopY = event.clientY - this.dragState.offsetY;
+    const startMin = minuteFromCanvasY(blockTopY, this.dragState.canvas);
+    const top = Math.max(0, Math.min(topPercentFromMinute(startMin), maxTopPercent(this.dragState.durationMs)));
+    this.dragState.block.style.top = `${top}%`;
+    this.dragState.block.classList.add('lesson-block--dragging');
+  };
+
+  private onLessonPointerUp = (event: PointerEvent): void => {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    const { block, moved, lessonNumber, durationMs } = this.dragState;
+    block.releasePointerCapture(event.pointerId);
+    block.removeEventListener('pointermove', this.onLessonPointerMove);
+    block.removeEventListener('pointerup', this.onLessonPointerUp);
+    block.removeEventListener('pointercancel', this.onLessonPointerUp);
+    block.classList.remove('lesson-block--dragging');
+    this.dragState = null;
+
+    if (!moved) {
+      this.editingLesson = this.lessons.find((lesson) => lesson.number === lessonNumber) ?? null;
+      this.modal = 'lesson';
+      this.render();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const topPercent = Number.parseFloat(block.style.top);
+    const startMin = minuteFromTopPercent(topPercent);
+    const { start, end } = datesFromStartMinute(this.selectedDay, startMin, durationMs);
+    this.applyLessonDrag(lessonNumber, start, end);
+  };
+
+  private applyLessonDrag(lessonNumber: number, newStart: Date, newEnd: Date): void {
+    const lesson = this.lessons.find((item) => item.number === lessonNumber);
+    if (!lesson) {
+      this.render();
+      return;
+    }
+
+    const newMeta: LessonMeta = {
+      ...lesson.meta,
+      start: newStart.toISOString(),
+      end: newEnd.toISOString(),
+    };
+    const conflict = findOverlappingLesson(newMeta, this.lessons, lessonNumber);
+    if (conflict) {
+      const otherStudent = this.studentByNumber(conflict.meta.studentNumber);
+      this.overlapMessage = `Пересечение с «${otherStudent?.name ?? 'учеником'}» (${formatTimeRange(conflict.meta.start, conflict.meta.end)}).`;
+      this.editingLesson = null;
+      this.modal = 'overlap';
+      this.render();
+      return;
+    }
+
+    const snapshot = this.snapshotData();
+    const index = this.lessons.findIndex((item) => item.number === lessonNumber);
+    if (index >= 0) {
+      this.lessons[index] = { ...lesson, meta: newMeta };
+    }
+    this.render();
+    this.syncInBackground(
+      (async () => {
+        const api = createPlanningApi(this.config);
+        const updated = await api.updateLesson({
+          number: lesson.number,
+          title: lesson.title,
+          notes: lesson.notes,
+          meta: newMeta,
+        });
+        const updatedIndex = this.lessons.findIndex((item) => item.number === lessonNumber);
+        if (updatedIndex >= 0) this.lessons[updatedIndex] = updated;
+        this.render();
+      })(),
+      () => this.restoreSnapshot(snapshot),
+      'Не удалось переместить занятие',
+    );
   }
 
   private closeModal(): void {

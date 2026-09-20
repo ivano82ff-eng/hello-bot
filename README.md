@@ -52,6 +52,19 @@ npm run dev
 
 Подробности — в Project store: `docs/desktop-calendar.md`.
 
+### Публикация (GitHub Pages)
+
+**Публичный URL (после включения Pages):** https://ivano82ff.github.io/hello-bot/planning/
+
+Репозиторий сейчас на **Origin** (`mirror status: no-mirror`), GitHub не получает пуши автоматически. Один раз:
+
+1. На [github.com/new](https://github.com/new) создайте репозиторий `hello-bot` (можно приватный).
+2. `git remote add github https://github.com/ivano82ff/hello-bot.git`
+3. `git push github main` и `npm run deploy:gh-pages` (ветка `gh-pages`).
+4. GitHub → **Settings → Pages** → Source: **GitHub Actions** (workflow `.github/workflows/pages.yml` уже в `main`)  
+   или Deploy from branch **`gh-pages`** / root.
+5. Через 1–2 минуты откройте URL выше. PAT по-прежнему только в настройках приложения.
+
 ## Запуск локально
 
 Нужен Node.js 20+.

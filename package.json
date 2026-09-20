@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:pages": "tsc && GITHUB_PAGES=true vite build",
+    "deploy:gh-pages": "npm run build:pages && npx gh-pages@6.2.0 -d dist --dotfiles -m \"Deploy planning app\"",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

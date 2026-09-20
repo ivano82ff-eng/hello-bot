@@ -76,6 +76,11 @@ export function parseStudentBody(body: string | null | undefined): {
       course: String(fields.course),
       paymentStatus: status === 'paid' || status === 'partial' ? status : 'unpaid',
       paymentAmount: Number(fields.paymentAmount ?? 0),
+      lessonPrice: Number(fields.lessonPrice ?? 0),
+      parentPhone1: fields.parentPhone1 ? String(fields.parentPhone1) : undefined,
+      parentPhone2: fields.parentPhone2 ? String(fields.parentPhone2) : undefined,
+      maxUrl: fields.maxUrl ? String(fields.maxUrl) : undefined,
+      telegramUrl: fields.telegramUrl ? String(fields.telegramUrl) : undefined,
       photoUrl: fields.photoUrl ? String(fields.photoUrl) : undefined,
     },
     notes,
@@ -88,6 +93,11 @@ export function serializeStudentBody(meta: StudentMeta, notes: string): string {
       course: meta.course,
       paymentStatus: meta.paymentStatus,
       paymentAmount: meta.paymentAmount,
+      lessonPrice: meta.lessonPrice,
+      parentPhone1: meta.parentPhone1,
+      parentPhone2: meta.parentPhone2,
+      maxUrl: meta.maxUrl,
+      telegramUrl: meta.telegramUrl,
       photoUrl: meta.photoUrl,
     },
     notes,
@@ -100,25 +110,31 @@ export function parseLessonBody(body: string | null | undefined): {
 } {
   const { fields, notes } = parseIssueBody(body);
   if (!fields.start || !fields.end || !fields.studentNumber) return { meta: null, notes };
+  const completed =
+    fields.completed === true || fields.completed === 'true'
+      ? true
+      : fields.completed === false || fields.completed === 'false'
+        ? false
+        : undefined;
   return {
     meta: {
       studentNumber: Number(fields.studentNumber),
       start: String(fields.start),
       end: String(fields.end),
+      completed,
     },
     notes,
   };
 }
 
 export function serializeLessonBody(meta: LessonMeta, notes: string): string {
-  return serializeIssueBody(
-    {
-      studentNumber: meta.studentNumber,
-      start: meta.start,
-      end: meta.end,
-    },
-    notes,
-  );
+  const fields: Record<string, string | number | boolean | undefined> = {
+    studentNumber: meta.studentNumber,
+    start: meta.start,
+    end: meta.end,
+  };
+  if (meta.completed !== undefined) fields.completed = meta.completed;
+  return serializeIssueBody(fields, notes);
 }
 
 export function startOfDay(date: Date): Date {

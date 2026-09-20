@@ -45,6 +45,17 @@ body {
   color: var(--text);
 }
 
+[data-theme='light'] body {
+  background:
+    radial-gradient(circle at top right, rgba(59, 122, 237, 0.08), transparent 30%),
+    linear-gradient(180deg, #e8edf5, var(--bg));
+}
+
+[data-theme='light'] .header__actions .btn--ghost,
+[data-theme='light'] .tabs .tab:not(.tab--active) {
+  color: var(--text);
+}
+
 .layout { max-width: 1280px; margin: 0 auto; padding: 24px; }
 
 .header {
@@ -328,7 +339,91 @@ body {
 .btn:hover:not(:disabled) { background: var(--accent-hover); }
 .btn:disabled { opacity: 0.6; cursor: wait; }
 .btn--ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--text); }
+.btn--sm { padding: 8px 12px; font-size: 0.88rem; white-space: nowrap; }
 .btn--danger { background: transparent; border: 1px solid rgba(255, 107, 122, 0.45); color: var(--danger); }
+
+.form-section {
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-section__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.payment-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(79, 140, 255, 0.08);
+  border: 1px solid rgba(79, 140, 255, 0.2);
+}
+
+[data-theme='light'] .payment-summary {
+  background: rgba(59, 122, 237, 0.06);
+  border-color: rgba(59, 122, 237, 0.18);
+}
+
+.payment-summary__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.payment-summary__row strong { font-size: 1.05rem; }
+.payment-summary__row--highlight strong { color: var(--accent); font-size: 1.15rem; }
+.payment-summary__row--debt strong { color: var(--danger); }
+.payment-summary__row--overpay strong { color: var(--warn); }
+
+.lesson-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lesson-checklist__title {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.lesson-checklist__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  cursor: pointer;
+}
+
+.lesson-checklist__item--past { background: rgba(255, 255, 255, 0.03); }
+[data-theme='light'] .lesson-checklist__item--past { background: rgba(26, 35, 50, 0.03); }
+
+.lesson-checklist__when { font-size: 0.95rem; }
+.lesson-checklist__badge {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.contact-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.contact-row input { flex: 1; min-width: 0; }
+.contact-link { flex-shrink: 0; }
 
 #planning-modal-host {
   position: relative;
@@ -360,6 +455,8 @@ body.modal-open { overflow: hidden; }
   color: var(--text);
   box-shadow: var(--shadow);
 }
+
+.modal--wide { width: min(640px, calc(100vw - 32px)); }
 
 .modal--danger { border: 2px solid var(--danger); }
 

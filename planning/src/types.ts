@@ -4,6 +4,11 @@ export interface StudentMeta {
   course: string;
   paymentStatus: PaymentStatus;
   paymentAmount: number;
+  lessonPrice: number;
+  parentPhone1?: string;
+  parentPhone2?: string;
+  maxUrl?: string;
+  telegramUrl?: string;
   photoUrl?: string;
 }
 
@@ -20,6 +25,7 @@ export interface LessonMeta {
   studentNumber: number;
   start: string;
   end: string;
+  completed?: boolean;
 }
 
 export interface Lesson {

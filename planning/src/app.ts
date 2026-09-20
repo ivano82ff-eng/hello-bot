@@ -6,6 +6,14 @@ import {
   toDateInputValue,
 } from './frontmatter';
 import { findOverlappingLesson, overlappingLessonNumbers } from './overlap';
+import {
+  computePaymentSummary,
+  defaultLessonCompleted,
+  derivePaymentStatus,
+  lessonsForStudent,
+  normalizeTel,
+  type PaymentSummary,
+} from './payment';
 import { requestNotificationPermission, startLessonReminders } from './notifications';
 import { loadConfig, saveConfig } from './storage';
 import { applyTheme, loadTheme, saveTheme, type Theme } from './theme';
@@ -58,6 +66,7 @@ export class PlanningApp {
   private readonly modalHost: HTMLElement;
   private readonly toastHost: HTMLElement;
   private escapeHandler: ((event: KeyboardEvent) => void) | null = null;
+  private modalLessonCompleted = new Map<number, boolean>();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -185,9 +194,7 @@ export class PlanningApp {
               <div class="student-card__body">
                 <h2>${escapeHtml(student.name)}</h2>
                 <p class="student-card__course">${escapeHtml(student.meta.course)}</p>
-                <p class="student-card__payment payment--${student.meta.paymentStatus}">
-                  ${PAYMENT_LABELS[student.meta.paymentStatus]} · ${formatMoney(student.meta.paymentAmount)}
-                </p>
+                ${this.renderStudentCardPayment(student)}
                 <span class="student-card__edit-hint">Нажмите, чтобы изменить</span>
               </div>
             </article>
@@ -311,6 +318,132 @@ export class PlanningApp {
     return this.editingStudent?.meta.photoUrl ?? null;
   }
 
+  private initModalLessonCompleted(studentNumber: number): void {
+    this.modalLessonCompleted.clear();
+    for (const lesson of lessonsForStudent(studentNumber, this.lessons)) {
+      this.modalLessonCompleted.set(lesson.number, defaultLessonCompleted(lesson));
+    }
+  }
+
+  private renderStudentCardPayment(student: Student): string {
+    const summary = computePaymentSummary(student, this.lessons);
+    const status = derivePaymentStatus(summary);
+    const detail =
+      summary.overpayment > 0
+        ? `переплата ${formatMoney(summary.overpayment)}`
+        : summary.remainder > 0
+          ? `остаток ${formatMoney(summary.remainder)}`
+          : formatMoney(summary.paid);
+    return `<p class="student-card__payment payment--${status}">${PAYMENT_LABELS[status]} · ${detail}</p>`;
+  }
+
+  private renderStudentModal(): string {
+    const student = this.editingStudent;
+    const preview = this.currentPhotoPreview();
+    const draftStudent: Student = student ?? {
+      id: 0,
+      number: 0,
+      name: '',
+      notes: '',
+      meta: {
+        course: '',
+        paymentStatus: 'unpaid',
+        paymentAmount: 0,
+        lessonPrice: 0,
+      },
+      state: 'open',
+    };
+    const summary = computePaymentSummary(draftStudent, this.lessons, this.modalLessonCompleted);
+    const studentLessons = student ? lessonsForStudent(student.number, this.lessons) : [];
+
+    return `
+      <div class="modal modal--wide">
+        <form class="modal__form" data-form="student">
+          <h2>${student ? 'Изменить ученика' : 'Новый ученик'}</h2>
+          <div class="photo-picker">
+            <button class="photo-picker__btn" type="button" data-action="pick-photo">
+              ${preview
+                ? `<img src="${escapeAttr(preview)}" alt="" class="photo-picker__img" />`
+                : '<span class="photo-picker__placeholder">👤</span>'}
+              <span class="photo-picker__label">${preview ? 'Заменить фото' : 'Добавить фото'}</span>
+            </button>
+            <input class="photo-picker__input" name="photo" type="file" accept="image/*" hidden />
+          </div>
+          <label>Имя<input name="name" value="${escapeAttr(student?.name ?? '')}" required maxlength="120" /></label>
+          <label>Курс<input name="course" value="${escapeAttr(student?.meta.course ?? '')}" required /></label>
+
+          <section class="form-section payment-section" aria-labelledby="payment-heading">
+            <h3 id="payment-heading" class="form-section__title">Оплата</h3>
+            <label>Цена одного занятия (₽)
+              <input name="lessonPrice" type="number" min="0" step="100" value="${student?.meta.lessonPrice ?? 0}" />
+            </label>
+            <label>Уже внесено (₽)
+              <input name="paymentAmount" type="number" min="0" step="100" value="${student?.meta.paymentAmount ?? 0}" />
+            </label>
+            ${studentLessons.length ? `
+              <div class="lesson-checklist">
+                <p class="lesson-checklist__title">Занятия</p>
+                ${studentLessons
+                  .map((lesson) => {
+                    const checked = this.modalLessonCompleted.get(lesson.number) ?? defaultLessonCompleted(lesson);
+                    const past = new Date(lesson.meta.end) < new Date();
+                    return `
+                      <label class="lesson-checklist__item${past ? ' lesson-checklist__item--past' : ''}">
+                        <input
+                          type="checkbox"
+                          name="lesson-completed-${lesson.number}"
+                          data-lesson-number="${lesson.number}"
+                          ${checked ? 'checked' : ''}
+                        />
+                        <span class="lesson-checklist__when">${escapeHtml(formatLessonDateTime(lesson.meta.start, lesson.meta.end))}</span>
+                        <span class="lesson-checklist__badge">Проведено</span>
+                      </label>
+                    `;
+                  })
+                  .join('')}
+              </div>
+            ` : '<p class="hint">Занятия появятся в расписании — отметки «Проведено» можно будет поставить здесь.</p>'}
+            ${renderPaymentSummaryMarkup(summary)}
+          </section>
+
+          <section class="form-section contact-section" aria-labelledby="contact-heading">
+            <h3 id="contact-heading" class="form-section__title">Родители и связь</h3>
+            <label>Телефон родителя 1
+              <div class="contact-row">
+                <input name="parentPhone1" type="tel" value="${escapeAttr(student?.meta.parentPhone1 ?? '')}" placeholder="+7 900 000-00-00" />
+                <span data-contact-link="parentPhone1">${renderPhoneLink(student?.meta.parentPhone1)}</span>
+              </div>
+            </label>
+            <label>Телефон родителя 2
+              <div class="contact-row">
+                <input name="parentPhone2" type="tel" value="${escapeAttr(student?.meta.parentPhone2 ?? '')}" placeholder="+7 900 000-00-00" />
+                <span data-contact-link="parentPhone2">${renderPhoneLink(student?.meta.parentPhone2)}</span>
+              </div>
+            </label>
+            <label>Max (ссылка на чат)
+              <div class="contact-row">
+                <input name="maxUrl" type="url" value="${escapeAttr(student?.meta.maxUrl ?? '')}" placeholder="https://max.ru/…" />
+                <span data-contact-link="maxUrl">${renderMessageLink(student?.meta.maxUrl, 'Max')}</span>
+              </div>
+            </label>
+            <label>Telegram
+              <div class="contact-row">
+                <input name="telegramUrl" type="url" value="${escapeAttr(student?.meta.telegramUrl ?? '')}" placeholder="https://t.me/…" />
+                <span data-contact-link="telegramUrl">${renderMessageLink(student?.meta.telegramUrl, 'Telegram')}</span>
+              </div>
+            </label>
+          </section>
+
+          <label>Заметки<textarea name="notes" rows="3">${escapeHtml(student?.notes ?? '')}</textarea></label>
+          <div class="modal__actions">
+            <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
+            <button class="btn" type="submit">${student ? 'Сохранить' : 'Создать'}</button>
+          </div>
+        </form>
+      </div>
+    `;
+  }
+
   private renderModalContent(): string {
     if (!this.modal) return '';
 
@@ -348,39 +481,7 @@ export class PlanningApp {
     }
 
     if (this.modal === 'student') {
-      const student = this.editingStudent;
-      const preview = this.currentPhotoPreview();
-      return `
-        <div class="modal">
-          <form class="modal__form" data-form="student">
-            <h2>${student ? 'Изменить ученика' : 'Новый ученик'}</h2>
-            <div class="photo-picker">
-              <button class="photo-picker__btn" type="button" data-action="pick-photo">
-                ${preview
-                  ? `<img src="${escapeAttr(preview)}" alt="" class="photo-picker__img" />`
-                  : '<span class="photo-picker__placeholder">👤</span>'}
-                <span class="photo-picker__label">${preview ? 'Заменить фото' : 'Добавить фото'}</span>
-              </button>
-              <input class="photo-picker__input" name="photo" type="file" accept="image/*" hidden />
-            </div>
-            <label>Имя<input name="name" value="${escapeAttr(student?.name ?? '')}" required maxlength="120" /></label>
-            <label>Курс<input name="course" value="${escapeAttr(student?.meta.course ?? '')}" required /></label>
-            <label>Статус оплаты
-              <select name="paymentStatus">
-                <option value="paid" ${student?.meta.paymentStatus === 'paid' ? 'selected' : ''}>Оплачено</option>
-                <option value="partial" ${student?.meta.paymentStatus === 'partial' ? 'selected' : ''}>Частично</option>
-                <option value="unpaid" ${!student || student.meta.paymentStatus === 'unpaid' ? 'selected' : ''}>Не оплачено</option>
-              </select>
-            </label>
-            <label>Сумма (₽)<input name="paymentAmount" type="number" min="0" step="100" value="${student?.meta.paymentAmount ?? 0}" /></label>
-            <label>Заметки<textarea name="notes" rows="3">${escapeHtml(student?.notes ?? '')}</textarea></label>
-            <div class="modal__actions">
-              <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
-              <button class="btn" type="submit">${student ? 'Сохранить' : 'Создать'}</button>
-            </div>
-          </form>
-        </div>
-      `;
+      return this.renderStudentModal();
     }
 
     const lesson = this.editingLesson;
@@ -503,9 +604,98 @@ export class PlanningApp {
       number: tempNumber,
       name: input.name,
       notes: input.notes,
-      meta: { ...input.meta, photoUrl: previewUrl ?? input.meta.photoUrl },
+      meta: {
+        ...input.meta,
+        lessonPrice: input.meta.lessonPrice ?? 0,
+        photoUrl: previewUrl ?? input.meta.photoUrl,
+      },
       state: 'open',
     };
+  }
+
+  private readStudentInputFromForm(form: HTMLFormElement): CreateStudentInput {
+    const data = new FormData(form);
+    const lessonPrice = Number(data.get('lessonPrice') ?? 0);
+    const paymentAmount = Number(data.get('paymentAmount') ?? 0);
+    const optional = (name: string): string | undefined => {
+      const value = String(data.get(name) ?? '').trim();
+      return value || undefined;
+    };
+    let paymentStatus: PaymentStatus = paymentAmount > 0 ? 'partial' : 'unpaid';
+    if (this.editingStudent) {
+      const draft: Student = {
+        ...this.editingStudent,
+        meta: {
+          ...this.editingStudent.meta,
+          lessonPrice,
+          paymentAmount,
+        },
+      };
+      paymentStatus = derivePaymentStatus(
+        computePaymentSummary(draft, this.lessons, this.modalLessonCompleted),
+      );
+    }
+    return {
+      name: String(data.get('name') ?? '').trim(),
+      notes: String(data.get('notes') ?? '').trim(),
+      meta: {
+        course: String(data.get('course') ?? '').trim(),
+        paymentStatus,
+        paymentAmount,
+        lessonPrice,
+        parentPhone1: optional('parentPhone1'),
+        parentPhone2: optional('parentPhone2'),
+        maxUrl: optional('maxUrl'),
+        telegramUrl: optional('telegramUrl'),
+        photoUrl: this.editingStudent?.meta.photoUrl,
+      },
+    };
+  }
+
+  private collectLessonCompletionUpdates(): Array<{ lesson: Lesson; completed: boolean }> {
+    const updates: Array<{ lesson: Lesson; completed: boolean }> = [];
+    for (const [number, completed] of this.modalLessonCompleted) {
+      const lesson = this.lessons.find((item) => item.number === number);
+      if (!lesson) continue;
+      if (lesson.meta.completed === completed) continue;
+      updates.push({ lesson, completed });
+    }
+    return updates;
+  }
+
+  private updatePaymentSummaryInModal(form: HTMLFormElement): void {
+    if (!this.editingStudent) return;
+    const lessonPrice = Number(form.querySelector<HTMLInputElement>('[name=lessonPrice]')?.value ?? 0);
+    const paymentAmount = Number(form.querySelector<HTMLInputElement>('[name=paymentAmount]')?.value ?? 0);
+    const studentLessons = lessonsForStudent(this.editingStudent.number, this.lessons);
+    let completedLessons = 0;
+    for (const lesson of studentLessons) {
+      const checkbox = form.querySelector<HTMLInputElement>(`[data-lesson-number="${lesson.number}"]`);
+      if (checkbox?.checked) completedLessons += 1;
+    }
+    const dueNow = completedLessons * lessonPrice;
+    const summary: PaymentSummary = {
+      totalLessons: studentLessons.length,
+      completedLessons,
+      lessonPrice,
+      dueNow,
+      paid: paymentAmount,
+      remainder: Math.max(0, dueNow - paymentAmount),
+      overpayment: Math.max(0, paymentAmount - dueNow),
+    };
+    const target = form.querySelector('[data-payment-summary]');
+    if (target) target.outerHTML = renderPaymentSummaryMarkup(summary);
+  }
+
+  private updateContactLinksInModal(form: HTMLFormElement): void {
+    const phone1 = String(form.querySelector<HTMLInputElement>('[name=parentPhone1]')?.value ?? '').trim();
+    const phone2 = String(form.querySelector<HTMLInputElement>('[name=parentPhone2]')?.value ?? '').trim();
+    const maxUrl = String(form.querySelector<HTMLInputElement>('[name=maxUrl]')?.value ?? '').trim();
+    const telegramUrl = String(form.querySelector<HTMLInputElement>('[name=telegramUrl]')?.value ?? '').trim();
+    form.querySelector('[data-contact-link="parentPhone1"]')!.innerHTML = renderPhoneLink(phone1);
+    form.querySelector('[data-contact-link="parentPhone2"]')!.innerHTML = renderPhoneLink(phone2);
+    form.querySelector('[data-contact-link="maxUrl"]')!.innerHTML = renderMessageLink(maxUrl, 'Max');
+    form.querySelector('[data-contact-link="telegramUrl"]')!.innerHTML = renderMessageLink(telegramUrl, 'Telegram');
   }
 
   private createTempLesson(input: CreateLessonInput): Lesson {
@@ -546,6 +736,7 @@ export class PlanningApp {
     });
     this.root.querySelector('[data-action="new-student"]')?.addEventListener('click', () => {
       this.editingStudent = null;
+      this.modalLessonCompleted.clear();
       this.clearPhotoPreview();
       this.modal = 'student';
       this.render();
@@ -650,6 +841,26 @@ export class PlanningApp {
       this.photoPreviewUrl = URL.createObjectURL(file);
       this.renderModalOverlay();
     });
+    if (studentForm) {
+      const refreshPayment = () => this.updatePaymentSummaryInModal(studentForm);
+      const refreshContacts = () => this.updateContactLinksInModal(studentForm);
+      studentForm.querySelectorAll('[name=lessonPrice], [name=paymentAmount]').forEach((input) => {
+        input.addEventListener('input', refreshPayment);
+      });
+      studentForm.querySelectorAll('[data-lesson-number]').forEach((input) => {
+        input.addEventListener('change', (event) => {
+          const target = event.target as HTMLInputElement;
+          const number = Number(target.dataset.lessonNumber);
+          this.modalLessonCompleted.set(number, target.checked);
+          refreshPayment();
+        });
+      });
+      studentForm
+        .querySelectorAll('[name=parentPhone1], [name=parentPhone2], [name=maxUrl], [name=telegramUrl]')
+        .forEach((input) => {
+          input.addEventListener('input', refreshContacts);
+        });
+    }
 
     const lessonForm = this.modalHost.querySelector<HTMLFormElement>('form[data-form="lesson"]');
     lessonForm?.addEventListener('submit', (event) => {
@@ -664,6 +875,7 @@ export class PlanningApp {
 
   private openStudentEdit(number: number): void {
     this.editingStudent = this.students.find((student) => student.number === number) ?? null;
+    if (this.editingStudent) this.initModalLessonCompleted(this.editingStudent.number);
     this.clearPhotoPreview();
     this.modal = 'student';
     this.render();
@@ -698,6 +910,7 @@ export class PlanningApp {
     this.pendingLessonStart = null;
     this.pendingLessonEnd = null;
     this.overlapMessage = null;
+    this.modalLessonCompleted.clear();
     this.clearPhotoPreview();
     this.modalHost.innerHTML = '';
     document.body.classList.remove('modal-open');
@@ -716,24 +929,22 @@ export class PlanningApp {
   }
 
   private submitStudentForm(form: HTMLFormElement): void {
-    const data = new FormData(form);
-    const input: CreateStudentInput = {
-      name: String(data.get('name') ?? '').trim(),
-      notes: String(data.get('notes') ?? '').trim(),
-      meta: {
-        course: String(data.get('course') ?? '').trim(),
-        paymentStatus: String(data.get('paymentStatus') ?? 'unpaid') as PaymentStatus,
-        paymentAmount: Number(data.get('paymentAmount') ?? 0),
-        photoUrl: this.editingStudent?.meta.photoUrl,
-      },
-    };
+    const input = this.readStudentInputFromForm(form);
     const photo = this.pendingPhoto;
     const previewUrl = photo ? URL.createObjectURL(photo) : undefined;
     const editing = this.editingStudent;
+    const lessonUpdates = this.collectLessonCompletionUpdates();
     const snapshot = this.snapshotData();
 
     this.closeModal();
     this.render();
+
+    for (const { lesson, completed } of lessonUpdates) {
+      const index = this.lessons.findIndex((item) => item.number === lesson.number);
+      if (index >= 0) {
+        this.lessons[index] = { ...lesson, meta: { ...lesson.meta, completed } };
+      }
+    }
 
     if (editing) {
       const index = this.students.findIndex((student) => student.number === editing.number);
@@ -757,6 +968,16 @@ export class PlanningApp {
               number: student.number,
               meta: { ...input.meta, photoUrl },
             });
+          }
+          for (const { lesson, completed } of lessonUpdates) {
+            const updatedLesson = await api.updateLesson({
+              number: lesson.number,
+              title: lesson.title,
+              notes: lesson.notes,
+              meta: { ...lesson.meta, completed },
+            });
+            const lessonIndex = this.lessons.findIndex((item) => item.number === lesson.number);
+            if (lessonIndex >= 0) this.lessons[lessonIndex] = updatedLesson;
           }
           const updatedIndex = this.students.findIndex((item) => item.number === editing.number);
           if (updatedIndex >= 0) this.students[updatedIndex] = student;
@@ -892,6 +1113,47 @@ function formatTimeRange(start: string, end: string): string {
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat('ru-RU').format(amount) + ' ₽';
+}
+
+function formatLessonDateTime(start: string, end: string): string {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const datePart = startDate.toLocaleDateString('ru-RU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  const timeOpts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  const timePart = `${startDate.toLocaleTimeString('ru-RU', timeOpts)} – ${endDate.toLocaleTimeString('ru-RU', timeOpts)}`;
+  return `${datePart}, ${timePart}`;
+}
+
+function renderPaymentSummaryMarkup(summary: PaymentSummary): string {
+  const balanceLine =
+    summary.overpayment > 0
+      ? `<p class="payment-summary__row payment-summary__row--overpay"><span>Переплата</span><strong>${formatMoney(summary.overpayment)}</strong></p>`
+      : `<p class="payment-summary__row payment-summary__row--debt"><span>Остаток</span><strong>${formatMoney(summary.remainder)}</strong></p>`;
+  return `
+    <div class="payment-summary" data-payment-summary>
+      <p class="payment-summary__row"><span>Занятий</span><strong>${summary.completedLessons} / ${summary.totalLessons} проведено</strong></p>
+      <p class="payment-summary__row payment-summary__row--highlight"><span>Сейчас к оплате</span><strong>${formatMoney(summary.dueNow)}</strong></p>
+      <p class="payment-summary__row"><span>Уже внесено</span><strong>${formatMoney(summary.paid)}</strong></p>
+      ${balanceLine}
+    </div>
+  `;
+}
+
+function renderPhoneLink(phone?: string): string {
+  const value = phone?.trim();
+  if (!value) return '';
+  const href = `tel:${normalizeTel(value)}`;
+  return `<a class="btn btn--ghost btn--sm contact-link" href="${escapeAttr(href)}">Позвонить</a>`;
+}
+
+function renderMessageLink(url?: string, label = 'Написать'): string {
+  const value = url?.trim();
+  if (!value) return '';
+  return `<a class="btn btn--ghost btn--sm contact-link" href="${escapeAttr(value)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
 }
 
 function defaultStart(day: Date): string {

@@ -55,9 +55,19 @@ export class PlanningApp {
   private loading = false;
   private error: string | null = null;
   private stopReminders: (() => void) | null = null;
+  private readonly modalHost: HTMLElement;
+  private readonly toastHost: HTMLElement;
+  private escapeHandler: ((event: KeyboardEvent) => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
+    const modalHost = document.getElementById('planning-modal-host');
+    const toastHost = document.getElementById('sync-toast-host');
+    if (!modalHost || !toastHost) {
+      throw new Error('Не найдены контейнеры модального окна или уведомлений');
+    }
+    this.modalHost = modalHost;
+    this.toastHost = toastHost;
     const now = new Date();
     this.config = loadConfig();
     this.theme = loadTheme();
@@ -67,18 +77,27 @@ export class PlanningApp {
     void this.refreshAll();
   }
 
-  private async refreshAll(): Promise<void> {
-    this.loading = true;
-    this.error = null;
-    this.render();
+  private async refreshAll(showLoading = true): Promise<void> {
+    const isInitialLoad = this.students.length === 0 && this.lessons.length === 0;
+    if (showLoading && isInitialLoad) {
+      this.loading = true;
+      this.error = null;
+      this.render();
+    }
     try {
       const api = createPlanningApi(this.config);
       const [students, lessons] = await Promise.all([api.listStudents(), api.listLessons()]);
       this.students = students;
       this.lessons = lessons;
       this.startRemindersIfNeeded();
+      this.error = null;
     } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
+      if (showLoading && isInitialLoad) {
+        this.error = message;
+      } else {
+        this.showSyncToast(message);
+      }
     } finally {
       this.loading = false;
       this.render();
@@ -135,9 +154,9 @@ export class PlanningApp {
 
         <main>${this.tab === 'students' ? this.renderStudents() : this.renderSchedule(overlapNumbers)}</main>
       </div>
-      ${this.renderModal()}
     `;
     this.bindEvents();
+    this.renderModalOverlay();
   }
 
   private renderStudents(): string {
@@ -292,12 +311,12 @@ export class PlanningApp {
     return this.editingStudent?.meta.photoUrl ?? null;
   }
 
-  private renderModal(): string {
+  private renderModalContent(): string {
     if (!this.modal) return '';
 
     if (this.modal === 'overlap') {
       return `
-        <dialog class="modal modal--danger" open>
+        <div class="modal modal--danger">
           <div class="modal__body">
             <h2>Перехлёст занятий</h2>
             <p>${escapeHtml(this.overlapMessage ?? 'Два занятия пересекаются по времени.')}</p>
@@ -305,13 +324,13 @@ export class PlanningApp {
               <button class="btn" type="button" data-action="close-modal">Понятно</button>
             </div>
           </div>
-        </dialog>
+        </div>
       `;
     }
 
     if (this.modal === 'settings') {
       return `
-        <dialog class="modal" open>
+        <div class="modal">
           <form class="modal__form" data-form="settings">
             <h2>Настройки GitHub</h2>
             <label>Owner (данные)<input name="owner" value="${escapeAttr(this.config.owner)}" required /></label>
@@ -324,7 +343,7 @@ export class PlanningApp {
               <button class="btn" type="submit">Сохранить</button>
             </div>
           </form>
-        </dialog>
+        </div>
       `;
     }
 
@@ -332,7 +351,7 @@ export class PlanningApp {
       const student = this.editingStudent;
       const preview = this.currentPhotoPreview();
       return `
-        <dialog class="modal" open>
+        <div class="modal">
           <form class="modal__form" data-form="student">
             <h2>${student ? 'Изменить ученика' : 'Новый ученик'}</h2>
             <div class="photo-picker">
@@ -360,7 +379,7 @@ export class PlanningApp {
               <button class="btn" type="submit">${student ? 'Сохранить' : 'Создать'}</button>
             </div>
           </form>
-        </dialog>
+        </div>
       `;
     }
 
@@ -378,7 +397,7 @@ export class PlanningApp {
         : defaultEnd(this.selectedDay);
 
     return `
-      <dialog class="modal" open>
+      <div class="modal">
         <form class="modal__form" data-form="lesson">
           <h2>${lesson ? 'Изменить занятие' : 'Новое занятие'}</h2>
           <p class="hint">Расписание отдельно от карточки ученика</p>
@@ -401,8 +420,104 @@ export class PlanningApp {
             <button class="btn" type="submit">${lesson ? 'Сохранить' : 'Создать'}</button>
           </div>
         </form>
-      </dialog>
+      </div>
     `;
+  }
+
+  private renderModalOverlay(): void {
+    if (!this.modal) {
+      this.modalHost.innerHTML = '';
+      document.body.classList.remove('modal-open');
+      this.detachEscapeHandler();
+      return;
+    }
+
+    this.modalHost.innerHTML = `
+      <div class="modal-overlay" data-action="overlay-backdrop" role="dialog" aria-modal="true">
+        ${this.renderModalContent()}
+      </div>
+    `;
+    document.body.classList.add('modal-open');
+    this.attachEscapeHandler();
+    this.bindModalEvents();
+  }
+
+  private attachEscapeHandler(): void {
+    this.detachEscapeHandler();
+    this.escapeHandler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !this.modal) return;
+      if (this.modal === 'overlap') {
+        this.modal = 'lesson';
+        this.overlapMessage = null;
+      } else {
+        this.closeModal();
+      }
+      this.render();
+    };
+    document.addEventListener('keydown', this.escapeHandler);
+  }
+
+  private detachEscapeHandler(): void {
+    if (!this.escapeHandler) return;
+    document.removeEventListener('keydown', this.escapeHandler);
+    this.escapeHandler = null;
+  }
+
+  private snapshotData(): { students: Student[]; lessons: Lesson[] } {
+    return {
+      students: this.students.map((student) => ({
+        ...student,
+        meta: { ...student.meta },
+      })),
+      lessons: this.lessons.map((lesson) => ({
+        ...lesson,
+        meta: { ...lesson.meta },
+      })),
+    };
+  }
+
+  private restoreSnapshot(snapshot: { students: Student[]; lessons: Lesson[] }): void {
+    this.students = snapshot.students;
+    this.lessons = snapshot.lessons;
+    this.render();
+  }
+
+  private showSyncToast(message: string): void {
+    this.toastHost.innerHTML = `<div class="sync-toast" role="alert">${escapeHtml(message)}</div>`;
+    window.setTimeout(() => {
+      this.toastHost.innerHTML = '';
+    }, 6000);
+  }
+
+  private syncInBackground(promise: Promise<void>, rollback: () => void, errorLabel: string): void {
+    void promise.catch((err) => {
+      rollback();
+      this.showSyncToast(err instanceof Error ? err.message : errorLabel);
+    });
+  }
+
+  private createTempStudent(input: CreateStudentInput, previewUrl?: string): Student {
+    const tempNumber = -Date.now();
+    return {
+      id: tempNumber,
+      number: tempNumber,
+      name: input.name,
+      notes: input.notes,
+      meta: { ...input.meta, photoUrl: previewUrl ?? input.meta.photoUrl },
+      state: 'open',
+    };
+  }
+
+  private createTempLesson(input: CreateLessonInput): Lesson {
+    const tempNumber = -Date.now();
+    return {
+      id: tempNumber,
+      number: tempNumber,
+      title: input.title,
+      notes: input.notes,
+      meta: { ...input.meta },
+      state: 'open',
+    };
   }
 
   private bindEvents(): void {
@@ -412,25 +527,16 @@ export class PlanningApp {
       applyTheme(this.theme);
       this.render();
     });
-    this.root.querySelector('[data-action="refresh"]')?.addEventListener('click', () => void this.refreshAll());
+    this.root.querySelector('[data-action="refresh"]')?.addEventListener('click', () => void this.refreshAll(true));
     this.root.querySelector('[data-action="open-settings"]')?.addEventListener('click', () => {
       this.modal = 'settings';
-      this.render();
+      this.renderModalOverlay();
     });
     this.root.querySelector('[data-action="notify-permission"]')?.addEventListener('click', () => {
       void requestNotificationPermission().then((granted) => {
         this.error = granted ? null : 'Разрешите уведомления в браузере.';
         this.render();
       });
-    });
-    this.root.querySelector('[data-action="close-modal"]')?.addEventListener('click', () => {
-      if (this.modal === 'overlap') {
-        this.modal = 'lesson';
-        this.overlapMessage = null;
-      } else {
-        this.closeModal();
-      }
-      this.render();
     });
     this.root.querySelectorAll('[data-action="tab"]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -488,8 +594,29 @@ export class PlanningApp {
         this.render();
       });
     });
+  }
 
-    const settingsForm = this.root.querySelector<HTMLFormElement>('form[data-form="settings"]');
+  private bindModalEvents(): void {
+    const overlay = this.modalHost.querySelector('[data-action="overlay-backdrop"]');
+    overlay?.addEventListener('click', (event) => {
+      if (event.target !== overlay) return;
+      if (this.modal === 'overlap') return;
+      this.closeModal();
+      this.render();
+    });
+
+    this.modalHost.querySelector('[data-action="close-modal"]')?.addEventListener('click', () => {
+      if (this.modal === 'overlap') {
+        this.modal = 'lesson';
+        this.overlapMessage = null;
+        this.renderModalOverlay();
+        return;
+      }
+      this.closeModal();
+      this.render();
+    });
+
+    const settingsForm = this.modalHost.querySelector<HTMLFormElement>('form[data-form="settings"]');
     settingsForm?.addEventListener('submit', (event) => {
       event.preventDefault();
       const data = new FormData(settingsForm);
@@ -502,17 +629,17 @@ export class PlanningApp {
         assetsRepo: this.config.assetsRepo,
       };
       saveConfig(this.config);
-      this.modal = null;
-      void this.refreshAll();
+      this.closeModal();
+      void this.refreshAll(true);
     });
 
-    const studentForm = this.root.querySelector<HTMLFormElement>('form[data-form="student"]');
+    const studentForm = this.modalHost.querySelector<HTMLFormElement>('form[data-form="student"]');
     studentForm?.addEventListener('submit', (event) => {
       event.preventDefault();
-      void this.submitStudentForm(studentForm);
+      this.submitStudentForm(studentForm);
     });
-    this.root.querySelector('[data-action="pick-photo"]')?.addEventListener('click', () => {
-      studentForm?.querySelector<HTMLInputElement>('.photo-picker__input')?.click();
+    studentForm?.querySelector('[data-action="pick-photo"]')?.addEventListener('click', () => {
+      studentForm.querySelector<HTMLInputElement>('.photo-picker__input')?.click();
     });
     studentForm?.querySelector<HTMLInputElement>('.photo-picker__input')?.addEventListener('change', (event) => {
       const input = event.target as HTMLInputElement;
@@ -521,24 +648,17 @@ export class PlanningApp {
       this.pendingPhoto = file;
       this.revokePhotoPreview();
       this.photoPreviewUrl = URL.createObjectURL(file);
-      this.render();
-      this.bindPhotoInput(studentForm);
+      this.renderModalOverlay();
     });
 
-    const lessonForm = this.root.querySelector<HTMLFormElement>('form[data-form="lesson"]');
+    const lessonForm = this.modalHost.querySelector<HTMLFormElement>('form[data-form="lesson"]');
     lessonForm?.addEventListener('submit', (event) => {
       event.preventDefault();
-      void this.submitLessonForm(lessonForm);
+      this.submitLessonForm(lessonForm);
     });
-    this.root.querySelector('[data-action="delete-lesson"]')?.addEventListener('click', () => {
+    this.modalHost.querySelector('[data-action="delete-lesson"]')?.addEventListener('click', () => {
       if (!this.editingLesson) return;
-      void this.deleteLesson(this.editingLesson.number);
-    });
-  }
-
-  private bindPhotoInput(studentForm: HTMLFormElement | null): void {
-    studentForm?.querySelector('[data-action="pick-photo"]')?.addEventListener('click', () => {
-      studentForm.querySelector<HTMLInputElement>('.photo-picker__input')?.click();
+      this.deleteLesson(this.editingLesson.number);
     });
   }
 
@@ -577,7 +697,11 @@ export class PlanningApp {
     this.pendingPhoto = null;
     this.pendingLessonStart = null;
     this.pendingLessonEnd = null;
+    this.overlapMessage = null;
     this.clearPhotoPreview();
+    this.modalHost.innerHTML = '';
+    document.body.classList.remove('modal-open');
+    this.detachEscapeHandler();
   }
 
   private clearPhotoPreview(): void {
@@ -591,7 +715,7 @@ export class PlanningApp {
     }
   }
 
-  private async submitStudentForm(form: HTMLFormElement): Promise<void> {
+  private submitStudentForm(form: HTMLFormElement): void {
     const data = new FormData(form);
     const input: CreateStudentInput = {
       name: String(data.get('name') ?? '').trim(),
@@ -603,35 +727,72 @@ export class PlanningApp {
         photoUrl: this.editingStudent?.meta.photoUrl,
       },
     };
+    const photo = this.pendingPhoto;
+    const previewUrl = photo ? URL.createObjectURL(photo) : undefined;
+    const editing = this.editingStudent;
+    const snapshot = this.snapshotData();
 
-    this.loading = true;
+    this.closeModal();
     this.render();
-    try {
-      const api = createPlanningApi(this.config);
-      let student: Student;
-      if (this.editingStudent) {
-        student = await api.updateStudent({ ...input, number: this.editingStudent.number });
-      } else {
-        student = await api.createStudent(input);
+
+    if (editing) {
+      const index = this.students.findIndex((student) => student.number === editing.number);
+      if (index >= 0) {
+        this.students[index] = {
+          ...editing,
+          name: input.name,
+          notes: input.notes,
+          meta: { ...input.meta, photoUrl: previewUrl ?? input.meta.photoUrl },
+        };
       }
-      if (this.pendingPhoto) {
-        const photoUrl = await api.uploadStudentPhoto(student.number, this.pendingPhoto);
-        student = await api.updateStudent({
-          ...input,
-          number: student.number,
-          meta: { ...input.meta, photoUrl },
-        });
-      }
-      this.closeModal();
-      await this.refreshAll();
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
-      this.loading = false;
       this.render();
+      this.syncInBackground(
+        (async () => {
+          const api = createPlanningApi(this.config);
+          let student = await api.updateStudent({ ...input, number: editing.number });
+          if (photo) {
+            const photoUrl = await api.uploadStudentPhoto(student.number, photo);
+            student = await api.updateStudent({
+              ...input,
+              number: student.number,
+              meta: { ...input.meta, photoUrl },
+            });
+          }
+          const updatedIndex = this.students.findIndex((item) => item.number === editing.number);
+          if (updatedIndex >= 0) this.students[updatedIndex] = student;
+          this.render();
+        })(),
+        () => this.restoreSnapshot(snapshot),
+        'Не удалось сохранить ученика',
+      );
+      return;
     }
+
+    const tempStudent = this.createTempStudent(input, previewUrl);
+    this.students.push(tempStudent);
+    this.render();
+    this.syncInBackground(
+      (async () => {
+        const api = createPlanningApi(this.config);
+        let student = await api.createStudent(input);
+        if (photo) {
+          const photoUrl = await api.uploadStudentPhoto(student.number, photo);
+          student = await api.updateStudent({
+            ...input,
+            number: student.number,
+            meta: { ...input.meta, photoUrl },
+          });
+        }
+        const index = this.students.findIndex((item) => item.number === tempStudent.number);
+        if (index >= 0) this.students[index] = student;
+        this.render();
+      })(),
+      () => this.restoreSnapshot(snapshot),
+      'Не удалось создать ученика',
+    );
   }
 
-  private async submitLessonForm(form: HTMLFormElement): Promise<void> {
+  private submitLessonForm(form: HTMLFormElement): void {
     const data = new FormData(form);
     const studentNumber = Number(data.get('studentNumber'));
     const student = this.studentByNumber(studentNumber);
@@ -646,7 +807,7 @@ export class PlanningApp {
       const otherStudent = this.studentByNumber(conflict.meta.studentNumber);
       this.overlapMessage = `Пересечение с «${otherStudent?.name ?? 'учеником'}» (${formatTimeRange(conflict.meta.start, conflict.meta.end)}).`;
       this.modal = 'overlap';
-      this.render();
+      this.renderModalOverlay();
       return;
     }
 
@@ -655,39 +816,64 @@ export class PlanningApp {
       notes: String(data.get('notes') ?? '').trim(),
       meta,
     };
+    const editing = this.editingLesson;
+    const snapshot = this.snapshotData();
 
-    this.loading = true;
+    this.closeModal();
     this.render();
-    try {
-      const api = createPlanningApi(this.config);
-      if (this.editingLesson) {
-        await api.updateLesson({ ...input, number: this.editingLesson.number });
-      } else {
-        await api.createLesson(input);
+
+    if (editing) {
+      const index = this.lessons.findIndex((lesson) => lesson.number === editing.number);
+      if (index >= 0) {
+        this.lessons[index] = {
+          ...editing,
+          title: input.title,
+          notes: input.notes,
+          meta: input.meta,
+        };
       }
-      this.closeModal();
-      await this.refreshAll();
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
-      this.loading = false;
       this.render();
+      this.syncInBackground(
+        (async () => {
+          const api = createPlanningApi(this.config);
+          const lesson = await api.updateLesson({ ...input, number: editing.number });
+          const updatedIndex = this.lessons.findIndex((item) => item.number === editing.number);
+          if (updatedIndex >= 0) this.lessons[updatedIndex] = lesson;
+          this.render();
+        })(),
+        () => this.restoreSnapshot(snapshot),
+        'Не удалось сохранить занятие',
+      );
+      return;
     }
+
+    const tempLesson = this.createTempLesson(input);
+    this.lessons.push(tempLesson);
+    this.render();
+    this.syncInBackground(
+      (async () => {
+        const api = createPlanningApi(this.config);
+        const lesson = await api.createLesson(input);
+        const index = this.lessons.findIndex((item) => item.number === tempLesson.number);
+        if (index >= 0) this.lessons[index] = lesson;
+        this.render();
+      })(),
+      () => this.restoreSnapshot(snapshot),
+      'Не удалось создать занятие',
+    );
   }
 
-  private async deleteLesson(number: number): Promise<void> {
+  private deleteLesson(number: number): void {
     if (!confirm('Отменить занятие (issue будет закрыт)?')) return;
-    this.loading = true;
+    const snapshot = this.snapshotData();
+    this.closeModal();
+    this.lessons = this.lessons.filter((lesson) => lesson.number !== number);
     this.render();
-    try {
-      const api = createPlanningApi(this.config);
-      await api.deleteLesson(number);
-      this.closeModal();
-      await this.refreshAll();
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : String(err);
-      this.loading = false;
-      this.render();
-    }
+    this.syncInBackground(
+      createPlanningApi(this.config).deleteLesson(number).then(() => undefined),
+      () => this.restoreSnapshot(snapshot),
+      'Не удалось удалить занятие',
+    );
   }
 }
 

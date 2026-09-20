@@ -316,14 +316,39 @@ body {
   background: rgba(79, 140, 255, 0.18);
   color: inherit;
   text-align: left;
-  padding: 8px 10px;
+  padding: 4px 8px;
   cursor: grab;
   touch-action: none;
   user-select: none;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
+  min-height: 0;
+}
+
+.lesson-block__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.lesson-block--now {
+  border-color: #3ecf8e;
+  background: rgba(62, 207, 142, 0.24);
+  box-shadow: 0 0 0 2px rgba(62, 207, 142, 0.35);
+}
+
+[data-theme='light'] .lesson-block--now {
+  border-color: #1f9d62;
+  background: rgba(31, 157, 98, 0.16);
+  box-shadow: 0 0 0 2px rgba(31, 157, 98, 0.28);
 }
 
 .lesson-block--dragging {
@@ -339,7 +364,19 @@ body {
   box-shadow: 0 0 0 2px rgba(255, 107, 122, 0.35);
 }
 
-.lesson-block__warn { color: var(--danger); font-size: 0.8rem; font-weight: 700; }
+.lesson-block--overlap.lesson-block--now {
+  border-color: var(--danger);
+  background: var(--overlap);
+  box-shadow: 0 0 0 2px rgba(255, 107, 122, 0.35);
+}
+
+.lesson-block__warn {
+  flex-shrink: 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+}
 .empty-grid, .empty-panel { color: var(--muted); }
 
 .btn {

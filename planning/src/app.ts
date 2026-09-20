@@ -88,6 +88,7 @@ export class PlanningApp {
   private escapeHandler: ((event: KeyboardEvent) => void) | null = null;
   private modalLessonCompleted = new Map<number, boolean>();
   private dragState: LessonDragState | null = null;
+  private nowTimer: number | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -187,6 +188,24 @@ export class PlanningApp {
     `;
     this.bindEvents();
     this.renderModalOverlay();
+    this.ensureNowTimer();
+  }
+
+  private ensureNowTimer(): void {
+    if (this.tab !== 'schedule') {
+      this.stopNowTimer();
+      return;
+    }
+    if (this.nowTimer !== null) return;
+    this.nowTimer = window.setInterval(() => {
+      if (this.tab === 'schedule' && !this.dragState) this.render();
+    }, 60_000);
+  }
+
+  private stopNowTimer(): void {
+    if (this.nowTimer === null) return;
+    window.clearInterval(this.nowTimer);
+    this.nowTimer = null;
   }
 
   private renderStudents(): string {
@@ -317,18 +336,28 @@ export class PlanningApp {
         const top = ((startMin - gridStart) / totalMinutes) * 100;
         const height = Math.max(((endMin - startMin) / totalMinutes) * 100, 4);
         const overlap = overlapNumbers.has(lesson.number);
+        const happeningNow = isLessonHappeningNow(lesson, this.selectedDay);
+        const studentName = student?.name ?? 'Ученик';
+        const label = formatLessonBlockLabel(studentName, lesson.meta.start, lesson.meta.end);
+        const classes = [
+          'lesson-block',
+          overlap ? 'lesson-block--overlap' : '',
+          happeningNow ? 'lesson-block--now' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
         return `
           <div
-            class="lesson-block${overlap ? ' lesson-block--overlap' : ''}"
+            class="${classes}"
             data-action="lesson-block"
             data-number="${lesson.number}"
             role="button"
             tabindex="0"
+            title="${escapeAttr(label)}${overlap ? ' · перехлёст' : ''}${happeningNow ? ' · сейчас' : ''}"
             style="top:${top}%;height:${height}%"
           >
-            <strong>${escapeHtml(student?.name ?? 'Ученик')}</strong>
-            <span>${formatTimeRange(lesson.meta.start, lesson.meta.end)}</span>
-            ${overlap ? '<span class="lesson-block__warn">⚠ перехлёст</span>' : ''}
+            <span class="lesson-block__label">${escapeHtml(label)}</span>
+            ${overlap ? '<span class="lesson-block__warn" aria-label="перехлёст">⚠</span>' : ''}
           </div>
         `;
       })
@@ -1250,6 +1279,23 @@ function formatDayTitle(date: Date): string {
 function formatTimeRange(start: string, end: string): string {
   const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
   return `${new Date(start).toLocaleTimeString('ru-RU', opts)} – ${new Date(end).toLocaleTimeString('ru-RU', opts)}`;
+}
+
+function formatCompactTimeRange(start: string, end: string): string {
+  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  return `${new Date(start).toLocaleTimeString('ru-RU', opts)}–${new Date(end).toLocaleTimeString('ru-RU', opts)}`;
+}
+
+function formatLessonBlockLabel(name: string, start: string, end: string): string {
+  return `${name} ${formatCompactTimeRange(start, end)}`;
+}
+
+function isLessonHappeningNow(lesson: Lesson, selectedDay: Date): boolean {
+  const now = new Date();
+  if (!sameDay(selectedDay, now)) return false;
+  const start = new Date(lesson.meta.start);
+  const end = new Date(lesson.meta.end);
+  return now >= start && now < end;
 }
 
 function formatMoney(amount: number): string {

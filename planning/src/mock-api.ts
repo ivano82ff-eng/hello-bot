@@ -19,6 +19,16 @@ function todayAt(hour: number, minute = 0): string {
   return date.toISOString();
 }
 
+function spanningNow(): { start: string; end: string } {
+  const now = new Date();
+  const start = new Date(now);
+  start.setSeconds(0, 0);
+  start.setMinutes(start.getMinutes() - 15);
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + 60);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 function seedStudents(): Student[] {
   return [
     {
@@ -85,6 +95,14 @@ function seedLessons(): Lesson[] {
       title: 'Занятие: Анна Смирнова',
       notes: '',
       meta: { studentNumber: 101, start: todayAt(14, 0), end: todayAt(15, 0) },
+      state: 'open',
+    },
+    {
+      id: 4,
+      number: 204,
+      title: 'Занятие: Анна Смирнова',
+      notes: 'Идёт сейчас — демо',
+      meta: { studentNumber: 101, ...spanningNow(), completed: false },
       state: 'open',
     },
   ];

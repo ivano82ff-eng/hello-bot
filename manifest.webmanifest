@@ -1,0 +1,26 @@
+{
+  "name": "Кот-вредитель",
+  "short_name": "Кот-вредитель",
+  "description": "Аркада про кота, который сбрасывает вещи со стола, пока хозяин не смотрит",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#150e20",
+  "theme_color": "#150e20",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

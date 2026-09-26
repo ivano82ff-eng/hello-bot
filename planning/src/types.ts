@@ -1,7 +1,9 @@
 export type PaymentStatus = 'paid' | 'partial' | 'unpaid';
 
 export interface StudentMeta {
+  /** Legacy primary course; kept in sync with courses[0] for old readers */
   course: string;
+  courses: string[];
   paymentStatus: PaymentStatus;
   paymentAmount: number;
   lessonPrice: number;
@@ -25,6 +27,7 @@ export interface LessonMeta {
   studentNumber: number;
   start: string;
   end: string;
+  course?: string;
   completed?: boolean;
 }
 

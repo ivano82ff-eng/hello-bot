@@ -25,6 +25,14 @@ import {
   normalizeTel,
   type PaymentSummary,
 } from './payment';
+import {
+  courseAccentColor,
+  courseShortTag,
+  formatCoursesList,
+  lessonCourseName,
+  normalizeStudentMeta,
+  studentCourses,
+} from './courses';
 import { requestNotificationPermission, startLessonReminders } from './notifications';
 import { loadConfig, saveConfig } from './storage';
 import { applyTheme, loadTheme, saveTheme, type Theme } from './theme';
@@ -89,6 +97,7 @@ export class PlanningApp {
   private readonly toastHost: HTMLElement;
   private escapeHandler: ((event: KeyboardEvent) => void) | null = null;
   private modalLessonCompleted = new Map<number, boolean>();
+  private modalCourses: string[] = [];
   private dragState: LessonDragState | null = null;
   private nowTimer: number | null = null;
 
@@ -235,7 +244,7 @@ export class PlanningApp {
               </div>
               <div class="student-card__body">
                 <h2>${escapeHtml(student.name)}</h2>
-                <p class="student-card__course">${escapeHtml(student.meta.course)}</p>
+                <p class="student-card__course">${escapeHtml(formatCoursesList(studentCourses(student)))}</p>
                 ${this.renderStudentCardPayment(student)}
                 <span class="student-card__edit-hint">Нажмите, чтобы изменить</span>
               </div>
@@ -340,6 +349,10 @@ export class PlanningApp {
         const overlap = overlapNumbers.has(lesson.number);
         const happeningNow = isLessonHappeningNow(lesson, this.selectedDay);
         const studentName = student?.name ?? 'Ученик';
+        const courseName = lessonCourseName(lesson, student);
+        const courses = studentCourses(student);
+        const tag = courseShortTag(courseName);
+        const tagColor = courseAccentColor(courseName, courses);
         const label = formatLessonBlockLabel(studentName, lesson.meta.start, lesson.meta.end);
         const classes = [
           'lesson-block',
@@ -355,9 +368,10 @@ export class PlanningApp {
             data-number="${lesson.number}"
             role="button"
             tabindex="0"
-            title="${escapeAttr(label)}${overlap ? ' · перехлёст' : ''}${happeningNow ? ' · сейчас' : ''}"
+            title="${escapeAttr(`${courseName ? `${courseName} · ` : ''}${label}`)}${overlap ? ' · перехлёст' : ''}${happeningNow ? ' · сейчас' : ''}"
             style="top:${top}%;height:${height}%"
           >
+            ${courseName ? `<span class="lesson-block__tag" style="--tag-color:${escapeAttr(tagColor)}">${escapeHtml(tag)}</span>` : ''}
             <span class="lesson-block__label">${escapeHtml(label)}</span>
             ${overlap ? '<span class="lesson-block__warn" aria-label="перехлёст">⚠</span>' : ''}
           </div>
@@ -400,6 +414,7 @@ export class PlanningApp {
       notes: '',
       meta: {
         course: '',
+        courses: [],
         paymentStatus: 'unpaid',
         paymentAmount: 0,
         lessonPrice: 0,
@@ -423,7 +438,7 @@ export class PlanningApp {
             <input class="photo-picker__input" name="photo" type="file" accept="image/*" hidden />
           </div>
           <label>Имя<input name="name" value="${escapeAttr(student?.name ?? '')}" required maxlength="120" /></label>
-          <label>Курс<input name="course" value="${escapeAttr(student?.meta.course ?? '')}" required /></label>
+          ${this.renderCoursesEditor()}
 
           <section class="form-section payment-section" aria-labelledby="payment-heading">
             <h3 id="payment-heading" class="form-section__title">Оплата</h3>
@@ -489,11 +504,36 @@ export class PlanningApp {
 
           <label>Заметки<textarea name="notes" rows="3">${escapeHtml(student?.notes ?? '')}</textarea></label>
           <div class="modal__actions">
+            ${student ? `<button class="btn btn--danger" type="button" data-action="delete-student">Удалить ученика</button>` : ''}
             <button class="btn btn--ghost" type="button" data-action="close-modal">Отмена</button>
             <button class="btn" type="submit">${student ? 'Сохранить' : 'Создать'}</button>
           </div>
         </form>
       </div>
+    `;
+  }
+
+  private renderCoursesEditor(): string {
+    const courses = this.modalCourses.length ? this.modalCourses : [''];
+    return `
+      <section class="form-section courses-section" aria-labelledby="courses-heading">
+        <h3 id="courses-heading" class="form-section__title">Курсы</h3>
+        <div class="courses-editor" data-courses-editor>
+          ${courses
+            .map(
+              (course, index) => `
+                <div class="courses-editor__row">
+                  <input name="course-${index}" value="${escapeAttr(course)}" required maxlength="80" placeholder="Название курса" />
+                  ${courses.length > 1
+                    ? `<button type="button" class="btn btn--ghost btn--sm" data-action="remove-course" data-index="${index}">Удалить</button>`
+                    : ''}
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+        <button type="button" class="btn btn--ghost btn--sm" data-action="add-course">+ Добавить курс</button>
+      </section>
     `;
   }
 
@@ -539,6 +579,10 @@ export class PlanningApp {
 
     const lesson = this.editingLesson;
     const defaultStudent = lesson?.meta.studentNumber ?? this.students[0]?.number ?? 0;
+    const lessonStudent = this.studentByNumber(defaultStudent);
+    const lessonCourses = studentCourses(lessonStudent);
+    const selectedCourse =
+      lesson?.meta.course ?? lessonCourses[0] ?? '';
     const startValue = lesson
       ? toDateInputValue(lesson.meta.start)
       : this.pendingLessonStart
@@ -561,6 +605,16 @@ export class PlanningApp {
                 .map(
                   (s) =>
                     `<option value="${s.number}" ${s.number === defaultStudent ? 'selected' : ''}>${escapeHtml(s.name)}</option>`,
+                )
+                .join('')}
+            </select>
+          </label>
+          <label>Курс
+            <select name="lessonCourse" required>
+              ${lessonCourses
+                .map(
+                  (course) =>
+                    `<option value="${escapeAttr(course)}" ${course === selectedCourse ? 'selected' : ''}>${escapeHtml(course)}</option>`,
                 )
                 .join('')}
             </select>
@@ -661,11 +715,11 @@ export class PlanningApp {
       number: tempNumber,
       name: input.name,
       notes: input.notes,
-      meta: {
+      meta: normalizeStudentMeta({
         ...input.meta,
         lessonPrice: input.meta.lessonPrice ?? 0,
         photoUrl: previewUrl ?? input.meta.photoUrl,
-      },
+      }),
       state: 'open',
     };
   }
@@ -692,20 +746,25 @@ export class PlanningApp {
         computePaymentSummary(draft, this.lessons, this.modalLessonCompleted),
       );
     }
+    const courses = [...form.querySelectorAll<HTMLInputElement>('input[name^="course-"]')]
+      .map((input) => input.value.trim())
+      .filter(Boolean);
+    const meta = normalizeStudentMeta({
+      course: courses[0] ?? '',
+      courses,
+      paymentStatus,
+      paymentAmount,
+      lessonPrice,
+      parentPhone1: optional('parentPhone1'),
+      parentPhone2: optional('parentPhone2'),
+      maxUrl: optional('maxUrl'),
+      telegramUrl: optional('telegramUrl'),
+      photoUrl: this.editingStudent?.meta.photoUrl,
+    });
     return {
       name: String(data.get('name') ?? '').trim(),
       notes: String(data.get('notes') ?? '').trim(),
-      meta: {
-        course: String(data.get('course') ?? '').trim(),
-        paymentStatus,
-        paymentAmount,
-        lessonPrice,
-        parentPhone1: optional('parentPhone1'),
-        parentPhone2: optional('parentPhone2'),
-        maxUrl: optional('maxUrl'),
-        telegramUrl: optional('telegramUrl'),
-        photoUrl: this.editingStudent?.meta.photoUrl,
-      },
+      meta,
     };
   }
 
@@ -793,6 +852,7 @@ export class PlanningApp {
     });
     this.root.querySelector('[data-action="new-student"]')?.addEventListener('click', () => {
       this.editingStudent = null;
+      this.modalCourses = [''];
       this.modalLessonCompleted.clear();
       this.clearPhotoPreview();
       this.modal = 'student';
@@ -838,9 +898,20 @@ export class PlanningApp {
 
   private bindModalEvents(): void {
     const overlay = this.modalHost.querySelector('[data-action="overlay-backdrop"]');
+    overlay?.addEventListener('mousedown', (event) => {
+      if (event.target !== overlay) return;
+      if (this.modal === 'overlap') return;
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === 'datetime-local') {
+        event.preventDefault();
+        active.blur();
+      }
+    });
     overlay?.addEventListener('click', (event) => {
       if (event.target !== overlay) return;
       if (this.modal === 'overlap') return;
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === 'datetime-local') return;
       this.closeModal();
       this.render();
     });
@@ -915,6 +986,11 @@ export class PlanningApp {
         .forEach((input) => {
           input.addEventListener('input', refreshContacts);
         });
+      this.bindCoursesEditor(studentForm);
+      studentForm.querySelector('[data-action="delete-student"]')?.addEventListener('click', () => {
+        if (!this.editingStudent) return;
+        this.deleteStudentWithLessons(this.editingStudent.number);
+      });
     }
 
     const lessonForm = this.modalHost.querySelector<HTMLFormElement>('form[data-form="lesson"]');
@@ -926,11 +1002,58 @@ export class PlanningApp {
       if (!this.editingLesson) return;
       this.deleteLesson(this.editingLesson.number);
     });
+    if (lessonForm) {
+      this.bindDateTimePickerGuard(lessonForm);
+      lessonForm.querySelector('[name=studentNumber]')?.addEventListener('change', () => {
+        const studentNumber = Number(
+          (lessonForm.querySelector('[name=studentNumber]') as HTMLSelectElement).value,
+        );
+        const student = this.studentByNumber(studentNumber);
+        const courses = studentCourses(student);
+        const select = lessonForm.querySelector<HTMLSelectElement>('[name=lessonCourse]');
+        if (!select) return;
+        select.innerHTML = courses
+          .map((course) => `<option value="${escapeAttr(course)}">${escapeHtml(course)}</option>`)
+          .join('');
+      });
+    }
+  }
+
+  private bindDateTimePickerGuard(form: HTMLFormElement): void {
+    form.querySelectorAll<HTMLInputElement>('input[type="datetime-local"]').forEach((input) => {
+      input.addEventListener('click', (event) => event.stopPropagation());
+      input.addEventListener('mousedown', (event) => event.stopPropagation());
+    });
+  }
+
+  private bindCoursesEditor(form: HTMLFormElement): void {
+    const syncCoursesFromForm = (): void => {
+      this.modalCourses = [...form.querySelectorAll<HTMLInputElement>('input[name^="course-"]')].map(
+        (input) => input.value,
+      );
+    };
+    form.querySelector('[data-action="add-course"]')?.addEventListener('click', () => {
+      syncCoursesFromForm();
+      this.modalCourses.push('');
+      this.renderModalOverlay();
+    });
+    form.querySelectorAll('[data-action="remove-course"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        syncCoursesFromForm();
+        const index = Number((button as HTMLButtonElement).dataset.index);
+        this.modalCourses = this.modalCourses.filter((_, i) => i !== index);
+        if (!this.modalCourses.length) this.modalCourses = [''];
+        this.renderModalOverlay();
+      });
+    });
   }
 
   private openStudentEdit(number: number): void {
     this.editingStudent = this.students.find((student) => student.number === number) ?? null;
-    if (this.editingStudent) this.initModalLessonCompleted(this.editingStudent.number);
+    if (this.editingStudent) {
+      this.initModalLessonCompleted(this.editingStudent.number);
+      this.modalCourses = [...studentCourses(this.editingStudent)];
+    }
     this.clearPhotoPreview();
     this.modal = 'student';
     this.render();
@@ -1083,6 +1206,7 @@ export class PlanningApp {
     this.pendingLessonEnd = null;
     this.overlapMessage = null;
     this.modalLessonCompleted.clear();
+    this.modalCourses = [];
     this.clearPhotoPreview();
     this.modalHost.innerHTML = '';
     document.body.classList.remove('modal-open');
@@ -1189,10 +1313,13 @@ export class PlanningApp {
     const data = new FormData(form);
     const studentNumber = Number(data.get('studentNumber'));
     const student = this.studentByNumber(studentNumber);
+    const course =
+      String(data.get('lessonCourse') ?? '').trim() || studentCourses(student)[0] || '';
     const meta = {
       studentNumber,
       start: fromDateInputValue(String(data.get('start'))),
       end: fromDateInputValue(String(data.get('end'))),
+      course,
     };
 
     const conflict = findOverlappingLesson(meta, this.lessons, this.editingLesson?.number);
@@ -1266,6 +1393,36 @@ export class PlanningApp {
       createPlanningApi(this.config).deleteLesson(number).then(() => undefined),
       () => this.restoreSnapshot(snapshot),
       'Не удалось удалить занятие',
+    );
+  }
+
+  private deleteStudentWithLessons(number: number): void {
+    const student = this.students.find((item) => item.number === number);
+    if (!student) return;
+    const lessonNumbers = this.lessons
+      .filter((lesson) => lesson.state === 'open' && lesson.meta.studentNumber === number)
+      .map((lesson) => lesson.number);
+    const message =
+      lessonNumbers.length > 0
+        ? `Удалить ученика «${student.name}» и закрыть ${lessonNumbers.length} занятий?`
+        : `Удалить ученика «${student.name}»?`;
+    if (!confirm(message)) return;
+
+    const snapshot = this.snapshotData();
+    this.closeModal();
+    this.students = this.students.filter((item) => item.number !== number);
+    this.lessons = this.lessons.filter((lesson) => lesson.meta.studentNumber !== number);
+    this.render();
+    this.syncInBackground(
+      (async () => {
+        const api = createPlanningApi(this.config);
+        for (const lessonNumber of lessonNumbers) {
+          await api.deleteLesson(lessonNumber);
+        }
+        await api.deleteStudent(number);
+      })(),
+      () => this.restoreSnapshot(snapshot),
+      'Не удалось удалить ученика',
     );
   }
 }

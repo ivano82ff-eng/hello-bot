@@ -38,6 +38,7 @@ function seedStudents(): Student[] {
       notes: 'Предпочитает утренние занятия.',
       meta: {
         course: 'Английский B2',
+        courses: ['Английский B2', 'Разговорный клуб'],
         paymentStatus: 'partial',
         paymentAmount: 15000,
         lessonPrice: 2500,
@@ -55,6 +56,7 @@ function seedStudents(): Student[] {
       notes: '',
       meta: {
         course: 'Математика (ЕГЭ)',
+        courses: ['Математика (ЕГЭ)', 'Физика'],
         paymentStatus: 'unpaid',
         paymentAmount: 8000,
         lessonPrice: 3000,
@@ -78,7 +80,7 @@ function seedLessons(): Lesson[] {
       number: 201,
       title: 'Занятие: Анна Смирнова',
       notes: '',
-      meta: { studentNumber: 101, start: start1, end: end1, completed: true },
+      meta: { studentNumber: 101, start: start1, end: end1, course: 'Английский B2', completed: true },
       state: 'open',
     },
     {
@@ -86,7 +88,7 @@ function seedLessons(): Lesson[] {
       number: 202,
       title: 'Занятие: Илья Козлов',
       notes: 'Перехлёст с Анной — демо',
-      meta: { studentNumber: 102, start: start2, end: end2, completed: false },
+      meta: { studentNumber: 102, start: start2, end: end2, course: 'Математика (ЕГЭ)', completed: false },
       state: 'open',
     },
     {
@@ -94,7 +96,12 @@ function seedLessons(): Lesson[] {
       number: 203,
       title: 'Занятие: Анна Смирнова',
       notes: '',
-      meta: { studentNumber: 101, start: todayAt(14, 0), end: todayAt(15, 0) },
+      meta: {
+        studentNumber: 101,
+        start: todayAt(14, 0),
+        end: todayAt(15, 0),
+        course: 'Разговорный клуб',
+      },
       state: 'open',
     },
     {
@@ -102,7 +109,7 @@ function seedLessons(): Lesson[] {
       number: 204,
       title: 'Занятие: Анна Смирнова',
       notes: 'Идёт сейчас — демо',
-      meta: { studentNumber: 101, ...spanningNow(), completed: false },
+      meta: { studentNumber: 101, ...spanningNow(), course: 'Английский B2', completed: false },
       state: 'open',
     },
   ];

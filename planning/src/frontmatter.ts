@@ -1,3 +1,4 @@
+import { normalizeStudentMeta, parseCoursesField, serializeCoursesYaml } from './courses';
 import type { LessonMeta, PaymentStatus, StudentMeta } from './types';
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
@@ -14,6 +15,7 @@ function parseYamlBlock(block: string): Record<string, string | number | boolean
     if (value === 'true') data[key] = true;
     else if (value === 'false') data[key] = false;
     else if (/^-?\d+(\.\d+)?$/.test(value)) data[key] = Number(value);
+    else if (value.startsWith('[')) data[key] = value;
     else data[key] = value.replace(/^['"]|['"]$/g, '');
   }
   return data;
@@ -69,11 +71,13 @@ export function parseStudentBody(body: string | null | undefined): {
   notes: string;
 } {
   const { fields, notes } = parseIssueBody(body);
-  if (!fields.course) return { meta: null, notes };
+  const courses = parseCoursesField(fields);
+  if (!courses.length) return { meta: null, notes };
   const status = String(fields.paymentStatus ?? 'unpaid') as PaymentStatus;
   return {
-    meta: {
-      course: String(fields.course),
+    meta: normalizeStudentMeta({
+      course: String(fields.course ?? courses[0]),
+      courses,
       paymentStatus: status === 'paid' || status === 'partial' ? status : 'unpaid',
       paymentAmount: Number(fields.paymentAmount ?? 0),
       lessonPrice: Number(fields.lessonPrice ?? 0),
@@ -82,23 +86,25 @@ export function parseStudentBody(body: string | null | undefined): {
       maxUrl: fields.maxUrl ? String(fields.maxUrl) : undefined,
       telegramUrl: fields.telegramUrl ? String(fields.telegramUrl) : undefined,
       photoUrl: fields.photoUrl ? String(fields.photoUrl) : undefined,
-    },
+    }),
     notes,
   };
 }
 
 export function serializeStudentBody(meta: StudentMeta, notes: string): string {
+  const normalized = normalizeStudentMeta(meta);
   return serializeIssueBody(
     {
-      course: meta.course,
-      paymentStatus: meta.paymentStatus,
-      paymentAmount: meta.paymentAmount,
-      lessonPrice: meta.lessonPrice,
-      parentPhone1: meta.parentPhone1,
-      parentPhone2: meta.parentPhone2,
-      maxUrl: meta.maxUrl,
-      telegramUrl: meta.telegramUrl,
-      photoUrl: meta.photoUrl,
+      course: normalized.course,
+      courses: serializeCoursesYaml(normalized.courses),
+      paymentStatus: normalized.paymentStatus,
+      paymentAmount: normalized.paymentAmount,
+      lessonPrice: normalized.lessonPrice,
+      parentPhone1: normalized.parentPhone1,
+      parentPhone2: normalized.parentPhone2,
+      maxUrl: normalized.maxUrl,
+      telegramUrl: normalized.telegramUrl,
+      photoUrl: normalized.photoUrl,
     },
     notes,
   );
@@ -121,6 +127,7 @@ export function parseLessonBody(body: string | null | undefined): {
       studentNumber: Number(fields.studentNumber),
       start: String(fields.start),
       end: String(fields.end),
+      course: fields.course ? String(fields.course) : undefined,
       completed,
     },
     notes,
@@ -133,6 +140,7 @@ export function serializeLessonBody(meta: LessonMeta, notes: string): string {
     start: meta.start,
     end: meta.end,
   };
+  if (meta.course) fields.course = meta.course;
   if (meta.completed !== undefined) fields.completed = meta.completed;
   return serializeIssueBody(fields, notes);
 }
